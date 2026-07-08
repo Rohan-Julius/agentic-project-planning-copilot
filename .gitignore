@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.vscode/
+docs/
+test_qwen.py
+
+# Environment / secrets
+.env
+
+# Local data (SQLite, uploaded docs, Qdrant local storage)
+data/
+qdrant_storage/
+
+# Node / React
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Planning / superpowers scratch (never committed with code, per project rule)
+.claude/
+superpowers/

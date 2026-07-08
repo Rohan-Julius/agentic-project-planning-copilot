@@ -1,0 +1,35 @@
+# Demo / packaging topology (spec §15, §26). In dev these run natively and the
+# backend connects via OLLAMA_HOST / QDRANT_URL. Fleshed out on Day 24.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - ollama
+      - qdrant
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "8000:8000"
+
+  # frontend service added on Day 24 once the React app exists.
+
+volumes:
+  ollama_models:
+  qdrant_storage:
