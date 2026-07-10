@@ -44,6 +44,15 @@ class Settings(BaseSettings):
         default="sqlite:///./data/app.db", alias="SQLITE_URL"
     )
 
+    # --- Frontend (CORS) ---
+    cors_origins: str = Field(
+        default="http://localhost:5173", alias="CORS_ORIGINS"
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     @property
     def documents_dir(self) -> Path:
         """Per spec §20.2: filesystem access restricted to the project data directory."""

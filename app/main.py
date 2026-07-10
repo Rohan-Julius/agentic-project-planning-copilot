@@ -6,14 +6,32 @@ Day 1 provides the app skeleton and the /health endpoint (spec §18). Feature ro
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import documents, projects
 from app.config import get_settings
+from app.database.session import init_db
 
 app = FastAPI(
     title="Agentic Project Planning Copilot",
     description="Local agentic AI that turns raw requirements into a reviewable project plan.",
     version="0.1.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origin_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(projects.router)
+app.include_router(documents.router)
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    init_db()
 
 
 @app.get("/health")

@@ -8,7 +8,6 @@ venv/
 .ruff_cache/
 .vscode/
 docs/
-test_qwen.py
 
 # Environment / secrets
 .env
