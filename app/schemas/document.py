@@ -27,3 +27,19 @@ class DocumentTextCreate(BaseModel):
     document_name: str = Field(min_length=1)
     content: str = Field(min_length=1)
     document_type: str = ""
+
+
+class ParsedBlock(BaseModel):
+    """One normalized unit of extracted text (§DESIGN.md §4) — a PDF text block, a DOCX
+    paragraph, or a TXT/Markdown paragraph. The chunker (Day 5) consumes these directly.
+    """
+
+    text: str
+    page_number: int | None = None
+    heading_level: int | None = None  # 1..N; None = body text
+    section_hierarchy_path: str = ""  # e.g. "3. Functional Req > 3.2 Reporting"
+
+
+class ParsedDocument(BaseModel):
+    document_id: str
+    blocks: list[ParsedBlock]
