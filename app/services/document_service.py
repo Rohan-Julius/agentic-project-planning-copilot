@@ -20,8 +20,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models.document import DocumentRecord
-from app.schemas.document import SUPPORTED_EXTENSIONS, ParsedBlock, ParsedDocument
+from app.models.document import DocumentChunkMeta, DocumentRecord
+from app.schemas.document import SUPPORTED_EXTENSIONS, ChunkPayload, ParsedBlock, ParsedDocument
 
 
 class DocumentParsingError(ValueError):
@@ -335,3 +335,27 @@ def parse_document(file_path: Path, extension: str, document_id: str) -> ParsedD
     if not any(block.text.strip() for block in blocks):
         raise EmptyDocumentError(f"Document '{file_path.name}' has no extractable text")
     return ParsedDocument(document_id=document_id, blocks=blocks)
+
+
+# --- Chunk metadata mirror (Day 5, DESIGN.md §5.2/§12.2) ----------------------------
+
+
+def save_chunk_meta(session: Session, chunks: list[ChunkPayload]) -> None:
+    """Upsert §12.2 chunk metadata into `document_chunk_meta`, mirroring the Qdrant
+    payload (minus vectors/text) so the Day-13 citation validator can check "does this
+    chunk_id exist and is it non-deleted" with a fast indexed SQL query.
+    """
+    for chunk in chunks:
+        row = session.scalar(
+            select(DocumentChunkMeta).where(DocumentChunkMeta.chunk_id == chunk.chunk_id)
+        )
+        if row is None:
+            row = DocumentChunkMeta(chunk_id=chunk.chunk_id)
+            session.add(row)
+        row.document_id = chunk.document_id
+        row.project_id = chunk.project_id
+        row.page_number = chunk.page_number
+        row.section = chunk.section
+        row.section_hierarchy_path = chunk.section_hierarchy_path
+        row.document_version = chunk.document_version
+    session.commit()

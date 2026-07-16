@@ -43,3 +43,21 @@ class ParsedBlock(BaseModel):
 class ParsedDocument(BaseModel):
     document_id: str
     blocks: list[ParsedBlock]
+
+
+class ChunkPayload(BaseModel):
+    """One chunk ready for embedding + Qdrant upsert (§12.2) — written to the Qdrant
+    payload verbatim and mirrored (minus `text`) into `document_chunk_meta`.
+    """
+
+    chunk_id: str
+    project_id: str
+    document_id: str
+    document_name: str
+    document_type: str = ""
+    source_type: str = "project"
+    document_version: str
+    text: str
+    page_number: int | None = None
+    section: str = ""
+    section_hierarchy_path: str = ""

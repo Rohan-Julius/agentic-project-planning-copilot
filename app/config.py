@@ -29,6 +29,10 @@ class Settings(BaseSettings):
         default="BAAI/bge-small-en-v1.5", alias="EMBEDDING_MODEL"
     )
 
+    # --- Chunking (spec §6.3, DESIGN.md §5.1) ---
+    chunk_token_limit: int = Field(default=512, alias="CHUNK_TOKEN_LIMIT")
+    chunk_overlap_ratio: float = Field(default=0.15, alias="CHUNK_OVERLAP_RATIO")
+
     # --- Vector store (Qdrant) ---
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
     qdrant_project_collection: str = Field(
