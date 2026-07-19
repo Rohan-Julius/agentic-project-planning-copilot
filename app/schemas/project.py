@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.schemas.clarification import ClarificationAnswerInfo
 from app.schemas.enums import Methodology
 
 
@@ -27,3 +28,17 @@ class ProjectCreate(BaseModel):
 class ProjectRead(ProjectCreate):
     project_id: str
     status: str
+
+
+class ProjectInfo(BaseModel):
+    """`get_project_information` tool return shape (spec §9.3)."""
+
+    project_id: str
+    name: str
+    description: str = ""
+    methodology: Methodology
+    expected_duration_weeks: int | None = None
+    team_composition: str = ""
+    target_platforms: list[str] = Field(default_factory=list)
+    technology_constraints: list[str] = Field(default_factory=list)
+    existing_clarification_answers: list[ClarificationAnswerInfo] = Field(default_factory=list)

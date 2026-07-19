@@ -4,8 +4,9 @@ Re-exports the full schema surface so callers can `from app.schemas import Requi
 etc. instead of reaching into individual modules.
 """
 from app.schemas.agents import SupervisorDecision
-from app.schemas.clarification import ClarificationQuestion
+from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQuestion
 from app.schemas.common import GroundedMixin, SourceReference
+from app.schemas.document import ChunkPayload, RetrievedChunk
 from app.schemas.enums import (
     Classification,
     ClarificationStatus,
@@ -37,7 +38,7 @@ from app.schemas.planning import (
     TraceabilityRow,
     UserStory,
 )
-from app.schemas.project import ProjectCreate, ProjectRead
+from app.schemas.project import ProjectCreate, ProjectInfo, ProjectRead
 from app.schemas.requirement import (
     Actor,
     Ambiguity,
@@ -49,9 +50,12 @@ from app.schemas.reviewer import ReviewerIssue, ReviewerReport
 
 __all__ = [
     "SupervisorDecision",
+    "ClarificationAnswerInfo",
     "ClarificationQuestion",
     "GroundedMixin",
     "SourceReference",
+    "ChunkPayload",
+    "RetrievedChunk",
     "Classification",
     "ClarificationStatus",
     "DependencyType",
@@ -80,6 +84,7 @@ __all__ = [
     "TraceabilityRow",
     "UserStory",
     "ProjectCreate",
+    "ProjectInfo",
     "ProjectRead",
     "Actor",
     "Ambiguity",

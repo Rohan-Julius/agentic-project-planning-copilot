@@ -8,6 +8,7 @@ a payload filter that a caller could forget to apply.
 from __future__ import annotations
 
 import uuid
+from functools import lru_cache
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -88,3 +89,11 @@ class VectorService:
             must=[FieldCondition(key="project_id", match=MatchValue(value=project_id))]
         )
         return self.search(collection, query_vector, query_filter, top_k)
+
+
+@lru_cache
+def get_vector_service() -> VectorService:
+    """Process-wide singleton (FastAPI-dependency-overridable in tests, same pattern as
+    `get_settings`/`get_engine`).
+    """
+    return VectorService()

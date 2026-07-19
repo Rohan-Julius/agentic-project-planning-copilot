@@ -33,3 +33,9 @@ class EmbeddingService:
 
     def count_tokens(self, text: str) -> int:
         return len(self._model.tokenizer.encode(text, add_special_tokens=False))
+
+
+@lru_cache
+def get_embedding_service() -> EmbeddingService:
+    """Process-wide singleton (FastAPI-dependency-overridable, same pattern as `get_settings`)."""
+    return EmbeddingService()

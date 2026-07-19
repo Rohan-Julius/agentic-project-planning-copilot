@@ -20,8 +20,9 @@ class DocumentRecord(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     document_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    project_id: Mapped[str] = mapped_column(
-        String, ForeignKey("projects.project_id"), index=True
+    # NULL for organizational documents (no project scope) — see DAY6_UNDERSTANDING.md.
+    project_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("projects.project_id"), index=True, nullable=True
     )
     document_name: Mapped[str] = mapped_column(String)
     document_type: Mapped[str] = mapped_column(String, default="")
@@ -42,7 +43,7 @@ class DocumentChunkMeta(Base):
     document_id: Mapped[str] = mapped_column(
         String, ForeignKey("documents.document_id"), index=True
     )
-    project_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section: Mapped[str] = mapped_column(String, default="")
     section_hierarchy_path: Mapped[str] = mapped_column(String, default="")

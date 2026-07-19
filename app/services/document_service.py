@@ -19,9 +19,15 @@ import fitz
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.models.document import DocumentChunkMeta, DocumentRecord
 from app.schemas.document import SUPPORTED_EXTENSIONS, ChunkPayload, ParsedBlock, ParsedDocument
+from app.services.vector_service import VectorService
+
+# Storage-path scope key for organizational documents (project_id is NULL for these —
+# see DAY6_UNDERSTANDING.md). Mirrors the `documents_dir/<project_id>/` convention Day 3
+# established for project documents.
+ORGANIZATIONAL_SCOPE = "_organizational"
 
 
 class DocumentParsingError(ValueError):
@@ -44,13 +50,13 @@ def generate_document_id() -> str:
     return f"doc_{uuid.uuid4().hex[:12]}"
 
 
-def _project_dir(settings: Settings, project_id: str) -> Path:
-    project_dir = settings.documents_dir / project_id
+def _project_dir(settings: Settings, project_id: str | None) -> Path:
+    project_dir = settings.documents_dir / (project_id or ORGANIZATIONAL_SCOPE)
     project_dir.mkdir(parents=True, exist_ok=True)
     return project_dir
 
 
-def _next_version(session: Session, project_id: str, document_name: str) -> str:
+def _next_version(session: Session, project_id: str | None, document_name: str) -> str:
     count = session.scalar(
         select(func.count())
         .select_from(DocumentRecord)
@@ -65,10 +71,11 @@ def _next_version(session: Session, project_id: str, document_name: str) -> str:
 def save_uploaded_document(
     session: Session,
     settings: Settings,
-    project_id: str,
+    project_id: str | None,
     filename: str,
     content: bytes,
     document_type: str = "",
+    source_type: str = "project",
 ) -> DocumentRecord:
     extension = Path(filename).suffix.lower()
     if extension not in SUPPORTED_EXTENSIONS:
@@ -86,7 +93,7 @@ def save_uploaded_document(
         project_id=project_id,
         document_name=filename,
         document_type=document_type,
-        source_type="project",
+        source_type=source_type,
         file_path=str(dest),
         document_version=_next_version(session, project_id, filename),
     )
@@ -99,10 +106,11 @@ def save_uploaded_document(
 def save_text_document(
     session: Session,
     settings: Settings,
-    project_id: str,
+    project_id: str | None,
     document_name: str,
     text_content: str,
     document_type: str = "",
+    source_type: str = "project",
 ) -> DocumentRecord:
     filename = document_name if Path(document_name).suffix else f"{document_name}.txt"
     return save_uploaded_document(
@@ -112,6 +120,7 @@ def save_text_document(
         filename,
         text_content.encode("utf-8"),
         document_type,
+        source_type,
     )
 
 
@@ -119,6 +128,14 @@ def list_documents(session: Session, project_id: str) -> list[DocumentRecord]:
     return list(
         session.scalars(
             select(DocumentRecord).where(DocumentRecord.project_id == project_id)
+        )
+    )
+
+
+def list_organizational_documents(session: Session) -> list[DocumentRecord]:
+    return list(
+        session.scalars(
+            select(DocumentRecord).where(DocumentRecord.source_type == "organizational")
         )
     )
 
@@ -134,16 +151,60 @@ def get_document(
     )
 
 
-def delete_document(session: Session, project_id: str, document_id: str) -> bool:
-    document = get_document(session, project_id, document_id)
+def get_organizational_document(session: Session, document_id: str) -> DocumentRecord | None:
+    return session.scalar(
+        select(DocumentRecord).where(
+            DocumentRecord.source_type == "organizational",
+            DocumentRecord.document_id == document_id,
+        )
+    )
+
+
+def _cascade_delete_vectors(
+    session: Session, vector_service: VectorService, collection: str, document_id: str
+) -> None:
+    """§20.4: deleting a document must remove its Qdrant points and chunk-meta rows too,
+    not just the SQLite `DocumentRecord` — otherwise it keeps being retrievable.
+    """
+    vector_service.delete_by_document(collection, document_id)
+    session.query(DocumentChunkMeta).filter(
+        DocumentChunkMeta.document_id == document_id
+    ).delete()
+
+
+def _delete_document_record(
+    session: Session,
+    document: DocumentRecord | None,
+    vector_service: VectorService,
+    collection: str,
+) -> bool:
     if document is None:
         return False
+    _cascade_delete_vectors(session, vector_service, collection, document.document_id)
     file_path = Path(document.file_path)
     if file_path.exists():
         file_path.unlink()
     session.delete(document)
     session.commit()
     return True
+
+
+def delete_document(
+    session: Session, project_id: str, document_id: str, vector_service: VectorService
+) -> bool:
+    document = get_document(session, project_id, document_id)
+    return _delete_document_record(
+        session, document, vector_service, get_settings().qdrant_project_collection
+    )
+
+
+def delete_organizational_document(
+    session: Session, document_id: str, vector_service: VectorService
+) -> bool:
+    document = get_organizational_document(session, document_id)
+    return _delete_document_record(
+        session, document, vector_service, get_settings().qdrant_org_collection
+    )
 
 
 # --- Parsing (Day 4, DESIGN.md §4) ---------------------------------------------------

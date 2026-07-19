@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import documents, projects
+from app.api import documents, projects, standards
 from app.config import get_settings
 from app.database.session import init_db
 
@@ -27,6 +27,7 @@ app.add_middleware(
 
 app.include_router(projects.router)
 app.include_router(documents.router)
+app.include_router(standards.router)
 
 
 @app.on_event("startup")

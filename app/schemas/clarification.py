@@ -25,3 +25,14 @@ class ClarificationQuestion(BaseModel):
     priority: Priority
     status: ClarificationStatus = "PENDING"
     user_answer: str | None = None
+
+
+class ClarificationAnswerInfo(BaseModel):
+    """One entry of `get_project_information`'s "existing clarification answers" (§9.3) —
+    any question the user has already acted on (answered, deferred, or marked N/A).
+    """
+
+    question_id: str
+    question: str
+    status: ClarificationStatus
+    user_answer: str | None = None

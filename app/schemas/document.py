@@ -13,7 +13,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
 class DocumentRead(BaseModel):
     document_id: str
-    project_id: str
+    project_id: str | None = None
     document_name: str
     document_type: str = ""
     source_type: str = "project"
@@ -51,7 +51,7 @@ class ChunkPayload(BaseModel):
     """
 
     chunk_id: str
-    project_id: str
+    project_id: str | None = None
     document_id: str
     document_name: str
     document_type: str = ""
@@ -61,3 +61,13 @@ class ChunkPayload(BaseModel):
     page_number: int | None = None
     section: str = ""
     section_hierarchy_path: str = ""
+
+
+class RetrievedChunk(ChunkPayload):
+    """A ranked, retrieved chunk (spec §9.1) — full provenance plus the retrieval score.
+
+    `similarity_score` is always the dense cosine similarity (see DAY6_UNDERSTANDING.md
+    decision 2); RRF governs fusion *order*, not the score reported back to the caller.
+    """
+
+    similarity_score: float
