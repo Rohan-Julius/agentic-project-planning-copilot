@@ -66,8 +66,45 @@ def _log(state: ProjectWorkflowState, config: RunnableConfig, **fields: Any) -> 
 
 
 def supervisor_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
-    _log(state, config, agent="Supervisor", stage="supervisor", action="EVALUATE_STATE", status="SUCCESS")
-    return {"current_stage": "supervisor"}
+    """Real Supervisor Agent node (Day 8).
+
+    Emits a routing decision based on the workflow state. The decision is logged and
+    set in state (for audit trail), but the deterministic router (route_next_node) is
+    the actual authority for loop limits and final routing — never trusts the agent
+    to enforce counters (§20.1).
+    """
+    from app.agents.supervisor import run_supervisor_agent
+    from app.agents.runner import AgentError
+
+    session = config["configurable"]["session_factory"]()
+    try:
+        _log(
+            state, config, agent="Supervisor", stage="supervisor",
+            action="EVALUATE_STATE", status="IN_PROGRESS",
+        )
+
+        decision = run_supervisor_agent(state, session)
+
+        _log(
+            state, config, agent="Supervisor", stage="supervisor",
+            action=f"RECOMMEND_{decision.next_action}", status="SUCCESS",
+        )
+
+        return {
+            "current_stage": "supervisor",
+            "next_action": decision.next_action,
+        }
+
+    except AgentError as e:
+        error_msg = str(e)
+        _log(
+            state, config, agent="Supervisor", stage="supervisor",
+            action="ERROR", status="ERROR", error=error_msg,
+        )
+        return {"errors": [*state["errors"], error_msg]}
+
+    finally:
+        session.close()
 
 
 def _stub_node_factory(node_name: str):

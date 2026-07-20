@@ -59,3 +59,22 @@ def test_status_for_unknown_project_returns_404(client):
 def test_start_for_unknown_project_returns_404(client):
     response = client.post("/projects/does-not-exist/workflow/start")
     assert response.status_code == 404
+
+
+def test_workflow_supervisor_makes_routing_decision(client):
+    """Supervisor Agent runs and makes a routing decision."""
+    project_id = _create_project(client)
+    client.post(f"/projects/{project_id}/workflow/start")
+
+    events_response = client.get(f"/projects/{project_id}/workflow/events")
+    events = events_response.json()
+
+    # Supervisor should have logged a RECOMMEND_* action (its decision)
+    supervisor_events = [e for e in events if e["agent"] == "Supervisor"]
+    assert len(supervisor_events) >= 2, "Supervisor should log EVALUATE_STATE and RECOMMEND_*"
+
+    # Check for the decision action (should recommend RUN_REQUIREMENT_ANALYST when empty)
+    decision_events = [e for e in supervisor_events if e["action"].startswith("RECOMMEND_")]
+    assert len(decision_events) > 0, "Supervisor should emit a RECOMMEND_* decision"
+    assert decision_events[0]["action"] == "RECOMMEND_RUN_REQUIREMENT_ANALYST", \
+        "Empty state should recommend requirement analyst"
