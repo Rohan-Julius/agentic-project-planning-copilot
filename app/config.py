@@ -62,6 +62,14 @@ class Settings(BaseSettings):
         """Per spec §20.2: filesystem access restricted to the project data directory."""
         return self.data_dir / "documents"
 
+    @property
+    def checkpoint_db_path(self) -> Path:
+        """LangGraph's SQLite-backed checkpointer (DESIGN.md §7.5) — separate from the
+        application's own `sqlite_url` DB so graph checkpoints and application rows can be
+        backed up/rotated independently.
+        """
+        return self.data_dir / "checkpoints.sqlite"
+
 
 @lru_cache
 def get_settings() -> Settings:
