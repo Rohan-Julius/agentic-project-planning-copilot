@@ -1,20 +1,22 @@
-"""Project-context tool (spec §9.3) — the agent<->project-metadata boundary.
+"""Project-context tool (spec §9.3, §9.4, §9.5) — the agent<->project-metadata boundary.
 
-Only `get_project_information` ships on Day 6; `save_requirements`,
-`save_clarification_questions`, `get_clarification_answers`, and `save_planning_artifacts`
-follow on Days 9/10/12 per PROJECT_PLAN.md.
+`get_project_information` ships on Day 6; `save_requirements`,
+`save_clarification_questions` (Day 9), `get_clarification_answers`, and
+`save_planning_artifacts` (Days 10/12) per PROJECT_PLAN.md.
 """
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database.session import get_sessionmaker
-from app.models.requirement import ClarificationQuestionRecord
+from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
 from app.schemas.clarification import ClarificationAnswerInfo
 from app.schemas.project import ProjectInfo
+from app.schemas.requirement import RequirementAnalysisResult
 from app.services import project_service
 
 
@@ -61,5 +63,84 @@ def get_project_information(
                 for row in acted_on
             ],
         )
+    finally:
+        session.close()
+
+
+def save_requirements(
+    project_id: str,
+    analysis_result: RequirementAnalysisResult,
+    workflow_run_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> None:
+    """Save extracted requirements from Requirement Analyst Agent (spec §9.4).
+
+    For each requirement in analysis_result:
+    1. Create RequirementRecord with full payload
+    2. Commit to database
+    3. All saved with project_id (mandatory isolation per §12.3, §20.4)
+
+    Args:
+        project_id: must match the project being analyzed (FK constraint enforces isolation)
+        analysis_result: RequirementAnalysisResult from Requirement Analyst Agent
+        workflow_run_id: the workflow run ID for audit trail (§21)
+        session_factory: SQLAlchemy session factory (injected for tests; uses default if None)
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        for req_pydantic in analysis_result.requirements:
+            # Create ORM record with full payload (spec §22 versioning)
+            req_record = RequirementRecord(
+                requirement_id=req_pydantic.requirement_id,
+                project_id=project_id,
+                workflow_run_id=workflow_run_id,
+                title=req_pydantic.title,
+                category=req_pydantic.category,
+                classification=req_pydantic.classification,
+                confidence=req_pydantic.confidence,
+                payload_json=req_pydantic.model_dump(),  # Full Pydantic payload
+            )
+            session.add(req_record)
+        session.commit()
+    finally:
+        session.close()
+
+
+def save_clarification_questions(
+    project_id: str,
+    analysis_result: RequirementAnalysisResult,
+    workflow_run_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> None:
+    """Save clarification questions from Requirement Analyst Agent (spec §9.5).
+
+    Each clarification question is saved with:
+    - status = "PENDING" (awaiting human gate 1 review per §11)
+    - Full payload for later retrieval
+    - project_id isolation (§20.4)
+
+    Args:
+        project_id: project being analyzed
+        analysis_result: RequirementAnalysisResult containing clarification_questions
+        workflow_run_id: audit trail reference
+        session_factory: SQLAlchemy session factory (injected for tests; uses default if None)
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        for q_pydantic in analysis_result.clarification_questions:
+            q_record = ClarificationQuestionRecord(
+                question_id=q_pydantic.question_id,
+                project_id=project_id,
+                category=q_pydantic.category,
+                priority=q_pydantic.priority,
+                status="PENDING",  # Initial status; user can change via §11 gate
+                payload_json=q_pydantic.model_dump(),  # Full Pydantic payload
+            )
+            session.add(q_record)
+        session.commit()
     finally:
         session.close()
