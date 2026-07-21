@@ -1,7 +1,9 @@
 """Requirement Analyst Agent output schemas (spec §7.2, §13.1, §14)."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.clarification import ClarificationQuestion
 from app.schemas.common import GroundedMixin, SourceReference
@@ -55,3 +57,22 @@ class RequirementAnalysisResult(BaseModel):
     contradictions: list[Contradiction] = Field(default_factory=list)
     ambiguities: list[Ambiguity] = Field(default_factory=list)
     clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+
+
+class RequirementRead(BaseModel):
+    """API response schema for a persisted requirement (spec §18).
+
+    Maps from RequirementRecord ORM model. Includes all fields except the
+    internal `id` primary key and `payload_json`.
+    """
+
+    requirement_id: str
+    project_id: str
+    title: str
+    category: str
+    classification: str
+    confidence: float
+    workflow_run_id: str | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

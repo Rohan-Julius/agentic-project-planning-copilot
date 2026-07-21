@@ -39,7 +39,6 @@ from app.workflow.state import ProjectWorkflowState
 
 # (display agent name, day it ships) — PROJECT_PLAN.md.
 _NOT_IMPLEMENTED = {
-    NODE_REQUIREMENT_ANALYST: ("RequirementAnalyst", 9),
     NODE_PLANNING: ("Planning", 11),
     NODE_REVIEWER: ("Reviewer", 13),
     NODE_PLAN_REVISION: ("Planning", 13),
@@ -107,6 +106,60 @@ def supervisor_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict
         session.close()
 
 
+def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
+    """Requirement Analyst Agent node (Day 9, spec §7.2).
+
+    Extracts structured requirements, identifies contradictions/ambiguities,
+    and generates clarification questions. Saves findings to database.
+    """
+    from app.agents.requirement_analyst import run_requirement_analyst_agent
+    from app.agents.runner import AgentError
+
+    session = config["configurable"]["session_factory"]()
+    try:
+        _log(
+            state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
+            action="EXTRACT_REQUIREMENTS", status="IN_PROGRESS",
+        )
+
+        # Run the agent
+        result = run_requirement_analyst_agent(
+            project_id=state["project_id"],
+            workflow_run_id=config["configurable"]["thread_id"],
+            session=session,
+        )
+
+        # Extract IDs from result
+        requirement_ids = [req.requirement_id for req in result.requirements]
+        unresolved_question_ids = [q.question_id for q in result.clarification_questions]
+
+        _log(
+            state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
+            action="EXTRACT_REQUIREMENTS", status="SUCCESS",
+            result_count=len(requirement_ids),
+            question_count=len(unresolved_question_ids),
+            contradiction_count=len(result.contradictions),
+            ambiguity_count=len(result.ambiguities),
+        )
+
+        return {
+            "current_stage": NODE_REQUIREMENT_ANALYST,
+            "requirement_ids": requirement_ids,
+            "unresolved_question_ids": unresolved_question_ids,
+        }
+
+    except AgentError as e:
+        error_msg = str(e)
+        _log(
+            state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
+            action="ERROR", status="ERROR", error=error_msg,
+        )
+        return {"errors": [*state["errors"], error_msg]}
+
+    finally:
+        session.close()
+
+
 def _stub_node_factory(node_name: str):
     agent_name, day = _NOT_IMPLEMENTED[node_name]
 
@@ -148,7 +201,8 @@ def stop_error_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict
 def build_graph() -> StateGraph:
     graph = StateGraph(ProjectWorkflowState)
     graph.add_node("supervisor", supervisor_node)
-    for name in (NODE_REQUIREMENT_ANALYST, NODE_PLANNING, NODE_REVIEWER, NODE_PLAN_REVISION, NODE_EXPORT):
+    graph.add_node(NODE_REQUIREMENT_ANALYST, requirement_analyst_node)
+    for name in (NODE_PLANNING, NODE_REVIEWER, NODE_PLAN_REVISION, NODE_EXPORT):
         graph.add_node(name, _stub_node_factory(name))
     graph.add_node(NODE_CLARIFICATION_GATE, clarification_gate_node)
     graph.add_node(NODE_FINAL_GATE, final_gate_node)
