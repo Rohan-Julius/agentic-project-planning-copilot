@@ -15,6 +15,7 @@ def _base_state() -> ProjectWorkflowState:
         "document_ids": ["doc1"],
         "requirement_ids": [],
         "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 0,
         "clarification_approved": False,
         "plan_version_id": None,
         "reviewer_decision": None,

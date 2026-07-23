@@ -115,18 +115,24 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
     from app.agents.requirement_analyst import run_requirement_analyst_agent
     from app.agents.runner import AgentError
 
-    session = config["configurable"]["session_factory"]()
+    attempts = state["requirement_analysis_attempts"] + 1
+
     try:
         _log(
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="EXTRACT_REQUIREMENTS", status="IN_PROGRESS",
         )
 
-        # Run the agent
+        # Run the agent — threads the same session_factory as `_log` uses (never the
+        # cached production get_sessionmaker() singleton), so a test-overridden engine
+        # is the one actually read/written (mirrors supervisor_node's pattern). Same for
+        # vector_service so retrieval-tool calls hit a test-overridden Qdrant instead of
+        # the process-wide get_vector_service() singleton.
         result = run_requirement_analyst_agent(
             project_id=state["project_id"],
             workflow_run_id=config["configurable"]["thread_id"],
-            session=session,
+            session_factory=config["configurable"]["session_factory"],
+            vector_service=config["configurable"].get("vector_service"),
         )
 
         # Extract IDs from result
@@ -137,27 +143,47 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="EXTRACT_REQUIREMENTS", status="SUCCESS",
             result_count=len(requirement_ids),
-            question_count=len(unresolved_question_ids),
-            contradiction_count=len(result.contradictions),
-            ambiguity_count=len(result.ambiguities),
+            extra={
+                "question_count": len(unresolved_question_ids),
+                "contradiction_count": len(result.contradictions),
+                "ambiguity_count": len(result.ambiguities),
+            },
         )
 
-        return {
+        update: dict = {
             "current_stage": NODE_REQUIREMENT_ANALYST,
             "requirement_ids": requirement_ids,
             "unresolved_question_ids": unresolved_question_ids,
+            "requirement_analysis_attempts": attempts,
         }
 
-    except AgentError as e:
+        # §20.1: maximum one retry. If the agent honestly found nothing extractable
+        # twice in a row (no invented requirements per §12.6), controlled-stop instead
+        # of letting the router send it back a third time.
+        if not requirement_ids and attempts >= 2:
+            error_msg = (
+                "Requirement Analyst produced no extractable requirements after "
+                f"{attempts} attempts (§20.1 retry limit reached) — likely no "
+                "documents or evidence available for this project."
+            )
+            _log(
+                state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
+                action="ERROR", status="ERROR", error=error_msg,
+            )
+            update["errors"] = [*state["errors"], error_msg]
+
+        return update
+
+    except (AgentError, ValueError) as e:
         error_msg = str(e)
         _log(
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="ERROR", status="ERROR", error=error_msg,
         )
-        return {"errors": [*state["errors"], error_msg]}
-
-    finally:
-        session.close()
+        return {
+            "errors": [*state["errors"], error_msg],
+            "requirement_analysis_attempts": attempts,
+        }
 
 
 def _stub_node_factory(node_name: str):

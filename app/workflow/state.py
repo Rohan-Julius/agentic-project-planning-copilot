@@ -18,6 +18,7 @@ class ProjectWorkflowState(TypedDict):
     document_ids: list[str]
     requirement_ids: list[str]
     unresolved_question_ids: list[str]
+    requirement_analysis_attempts: int
 
     clarification_approved: bool
     plan_version_id: str | None

@@ -27,6 +27,7 @@ def _state(**overrides) -> ProjectWorkflowState:
         "document_ids": [],
         "requirement_ids": [],
         "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 0,
         "clarification_approved": False,
         "plan_version_id": None,
         "reviewer_decision": None,
@@ -52,6 +53,16 @@ def _state(**overrides) -> ProjectWorkflowState:
             "no documents/requirements yet -> requirement_analyst",
             _state(),
             NODE_REQUIREMENT_ANALYST,
+        ),
+        (
+            "requirement analysis found nothing, one attempt made -> retry once",
+            _state(requirement_analysis_attempts=1),
+            NODE_REQUIREMENT_ANALYST,
+        ),
+        (
+            "requirement analysis found nothing twice -> stop_error (loop-limit, §20.1)",
+            _state(requirement_analysis_attempts=2),
+            NODE_STOP_ERROR,
         ),
         (
             "requirements present, unresolved questions, not approved -> clarification_gate",

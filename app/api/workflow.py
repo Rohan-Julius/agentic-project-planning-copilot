@@ -10,6 +10,7 @@ from app.database.session import get_session, get_sessionmaker
 from app.models.workflow import WorkflowEvent, WorkflowRun
 from app.schemas.workflow import WorkflowEventRead, WorkflowRunRead
 from app.services import project_service
+from app.services.vector_service import VectorService, get_vector_service
 from app.workflow import engine
 from app.workflow.checkpointer import get_checkpointer
 
@@ -27,9 +28,10 @@ def start_workflow(
     session: Session = Depends(get_session),
     checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
     session_factory: sessionmaker = Depends(get_sessionmaker),
+    vector_service: VectorService = Depends(get_vector_service),
 ):
     _require_project(session, project_id)
-    run = engine.start_workflow(session, checkpointer, project_id, session_factory)
+    run = engine.start_workflow(session, checkpointer, project_id, session_factory, vector_service)
     return WorkflowRunRead.model_validate(run)
 
 

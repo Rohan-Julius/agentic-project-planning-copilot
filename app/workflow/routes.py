@@ -43,6 +43,12 @@ def route_next_node(state: ProjectWorkflowState) -> str:
         return NODE_STOP_ERROR
 
     if not state["requirement_ids"]:
+        # §20.1: requirement-analysis retry is capped at one — a legitimately
+        # document-less/evidence-less project can honestly come back with zero
+        # requirements (the agent must not invent them), and without this cap that
+        # would loop back into requirement_analyst forever instead of controlled-stopping.
+        if state["requirement_analysis_attempts"] >= 2:
+            return NODE_STOP_ERROR
         return NODE_REQUIREMENT_ANALYST
 
     # Broadened from the spec table's "unresolved_question_ids non-empty ∧ ¬approved":

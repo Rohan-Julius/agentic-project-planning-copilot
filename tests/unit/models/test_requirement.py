@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.models.requirement import RequirementRecord, ClarificationQuestionRecord
 from app.models.base import Base
-from app.schemas.enums import RequirementCategory, ClassificationEnum
 
 
 def test_requirement_record_create():
@@ -18,12 +17,11 @@ def test_requirement_record_create():
             requirement_id="REQ-001",
             project_id="PRJ-001",
             title="User authentication",
-            description="System must support OAuth2",
-            category=RequirementCategory.functional,
-            classification=ClassificationEnum.SOURCE_BACKED,
+            category="functional",
+            classification="SOURCE_BACKED",
             confidence=0.95,
+            payload_json={"description": "System must support OAuth2"},
             workflow_run_id="RUN-001",
-            version=1
         )
         session.add(req)
         session.commit()
@@ -43,14 +41,15 @@ def test_clarification_question_record_create():
             question_id="Q-001",
             project_id="PRJ-001",
             category="technical",
-            question="Which OAuth2 providers are supported?",
-            reason="Authentication details not specified",
-            priority="high",
-            status="unanswered",
-            workflow_run_id="RUN-001"
+            priority="High",
+            status="PENDING",
+            payload_json={
+                "question": "Which OAuth2 providers are supported?",
+                "reason_for_asking": "Authentication details not specified",
+            },
         )
         session.add(q)
         session.commit()
 
         fetched = session.query(ClarificationQuestionRecord).filter_by(question_id="Q-001").first()
-        assert fetched.status == "unanswered"
+        assert fetched.status == "PENDING"

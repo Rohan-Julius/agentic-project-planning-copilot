@@ -25,6 +25,8 @@ def test_requirement_analyst_saves_and_retrieves():
         session.commit()
 
     # Create mock analysis result
+    from app.schemas.common import SourceReference
+
     result = RequirementAnalysisResult(
         requirements=[
             Requirement(
@@ -34,7 +36,15 @@ def test_requirement_analyst_saves_and_retrieves():
                 category="functional",
                 classification="SOURCE_BACKED",
                 confidence=0.9,
-                source_references=[]
+                source_references=[
+                    SourceReference(
+                        document_id="DOC-INT",
+                        document_name="test.txt",
+                        page_number=1,
+                        section="Test",
+                        chunk_id="DOC-INT-CH-001"
+                    )
+                ]
             )
         ],
         actors=[],
@@ -82,6 +92,8 @@ def test_requirement_analyst_project_isolation():
         session.commit()
 
     # Save requirement for PRJ-ISO-A
+    from app.schemas.common import SourceReference
+
     result_a = RequirementAnalysisResult(
         requirements=[
             Requirement(
@@ -91,7 +103,15 @@ def test_requirement_analyst_project_isolation():
                 category="functional",
                 classification="SOURCE_BACKED",
                 confidence=0.9,
-                source_references=[]
+                source_references=[
+                    SourceReference(
+                        document_id="DOC-A",
+                        document_name="doc_a.txt",
+                        page_number=1,
+                        section="A",
+                        chunk_id="DOC-A-CH-001"
+                    )
+                ]
             )
         ],
         actors=[],
@@ -112,7 +132,15 @@ def test_requirement_analyst_project_isolation():
                 category="functional",
                 classification="SOURCE_BACKED",
                 confidence=0.9,
-                source_references=[]
+                source_references=[
+                    SourceReference(
+                        document_id="DOC-B",
+                        document_name="doc_b.txt",
+                        page_number=1,
+                        section="B",
+                        chunk_id="DOC-B-CH-001"
+                    )
+                ]
             )
         ],
         actors=[],
