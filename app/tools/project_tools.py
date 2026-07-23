@@ -16,7 +16,7 @@ from app.database.session import get_sessionmaker
 from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
 from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQuestion
 from app.schemas.project import ProjectInfo
-from app.schemas.requirement import RequirementAnalysisResult
+from app.schemas.requirement import Requirement, RequirementAnalysisResult
 from app.services import project_service
 
 
@@ -163,5 +163,26 @@ def get_clarification_answers(
             )
         ).all()
         return [ClarificationQuestion.model_validate(r.payload_json) for r in records]
+    finally:
+        session.close()
+
+
+def get_requirements(
+    project_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> list[Requirement]:
+    """All requirements extracted for a project — the Planning Agent's approved-input
+    boundary (DESIGN.md §8.3). By the time planning runs, the clarification-approval gate
+    (§11) has already passed, so every persisted requirement is in scope; there is no
+    separate per-requirement approval step in this system.
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        records = session.scalars(
+            select(RequirementRecord).where(RequirementRecord.project_id == project_id)
+        ).all()
+        return [Requirement.model_validate(r.payload_json) for r in records]
     finally:
         session.close()

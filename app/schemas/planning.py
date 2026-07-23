@@ -56,6 +56,35 @@ class Epic(GroundedMixin):
     risks: list[str] = Field(default_factory=list)
 
 
+class EpicDraft(GroundedMixin):
+    """LLM-facing epic shape for the Planning Agent's epics-generation call (DESIGN.md §0.2,
+    §8.3): identical to `Epic` except it has no `epic_id` — IDs are minted deterministically
+    by the agent's post-processing step after generation, never proposed by the model.
+    """
+
+    title: str
+    objective: str
+    business_value: str
+    description: str = ""
+    priority: Priority
+    dependencies: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
+class PlanningSummaryScopeResult(BaseModel):
+    """Output shape of the Planning Agent's first generation call (DESIGN.md §8.3
+    "Generation order": summary+scope → epics → ...)."""
+
+    summary: ProjectSummary
+    scope: Scope
+
+
+class PlanningEpicsResult(BaseModel):
+    """Output shape of the Planning Agent's second generation call (epics)."""
+
+    epics: list[EpicDraft] = Field(default_factory=list)
+
+
 class UserStory(GroundedMixin):
     """Spec §13.6, §14 example.
 

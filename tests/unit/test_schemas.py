@@ -200,3 +200,63 @@ def test_project_plan_rejects_duplicate_story_ids():
 def test_sprint_plan_is_marked_ai_draft_by_default():
     plan = SprintPlan(suggested_sprint_count=2)
     assert plan.is_ai_generated_draft is True
+
+
+# --- Planning Agent draft/wrapper schemas (Day 11, DESIGN.md §0.2/§8.3) ---
+
+def test_epic_draft_requires_citation_when_source_backed():
+    from app.schemas.planning import EpicDraft
+
+    with pytest.raises(ValidationError, match="SOURCE_BACKED requires at least one source_reference"):
+        EpicDraft(
+            title="Payments",
+            objective="Enable payments",
+            business_value="Revenue",
+            priority="High",
+            classification="SOURCE_BACKED",
+        )
+
+
+def test_epic_draft_has_no_epic_id_field():
+    from app.schemas.planning import EpicDraft
+
+    draft = EpicDraft(
+        title="Payments",
+        objective="Enable payments",
+        business_value="Revenue",
+        priority="High",
+        classification="SOURCE_BACKED",
+        source_references=[SOURCE],
+    )
+    assert "epic_id" not in EpicDraft.model_fields
+    assert draft.title == "Payments"
+
+
+def test_planning_epics_result_wraps_epic_drafts():
+    from app.schemas.planning import EpicDraft, PlanningEpicsResult
+
+    result = PlanningEpicsResult(
+        epics=[
+            EpicDraft(
+                title="Payments",
+                objective="Enable payments",
+                business_value="Revenue",
+                priority="High",
+                classification="SOURCE_BACKED",
+                source_references=[SOURCE],
+            )
+        ]
+    )
+    assert len(result.epics) == 1
+    assert result.epics[0].title == "Payments"
+
+
+def test_planning_summary_scope_result_valid():
+    from app.schemas.planning import PlanningSummaryScopeResult
+
+    result = PlanningSummaryScopeResult(
+        summary=ProjectSummary(business_problem="X", proposed_solution="Y"),
+        scope=Scope(in_scope=["A"]),
+    )
+    assert result.summary.business_problem == "X"
+    assert result.scope.in_scope == ["A"]

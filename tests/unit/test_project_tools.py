@@ -7,10 +7,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
-from app.models.requirement import ClarificationQuestionRecord
+from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
 from app.schemas.project import ProjectCreate
+from app.schemas.requirement import Requirement
 from app.services import project_service
-from app.tools.project_tools import get_project_information
+from app.tools.project_tools import get_project_information, get_requirements
 
 
 @pytest.fixture
@@ -95,3 +96,76 @@ def test_get_project_information_includes_only_acted_on_clarifications(session_f
 def test_get_project_information_unknown_project_raises(session_factory):
     with pytest.raises(ValueError):
         get_project_information("does-not-exist", session_factory=session_factory)
+
+
+# --- get_requirements (Day 11: Planning Agent's approved-input boundary, DESIGN.md §8.3) ---
+
+def _add_requirement(
+    session_factory, project_id, requirement_id="REQ-1", classification="SOURCE_BACKED"
+) -> None:
+    session = session_factory()
+    source_references = (
+        [
+            {
+                "document_name": "support-notes.txt",
+                "page_number": 1,
+                "section": "Overview",
+                "chunk_id": "DOC-1-CH-001",
+            }
+        ]
+        if classification == "SOURCE_BACKED"
+        else []
+    )
+    session.add(
+        RequirementRecord(
+            requirement_id=requirement_id,
+            project_id=project_id,
+            workflow_run_id="RUN-1",
+            title="Multi-channel support",
+            category="functional",
+            classification=classification,
+            confidence=0.9,
+            payload_json={
+                "requirement_id": requirement_id,
+                "title": "Multi-channel support",
+                "description": "The assistant must support chat and email.",
+                "category": "functional",
+                "classification": classification,
+                "confidence": 0.9,
+                "source_references": source_references,
+            },
+        )
+    )
+    session.commit()
+    session.close()
+
+
+def test_get_requirements_returns_all_for_project(session_factory):
+    project_id = _create_project(session_factory)
+    _add_requirement(session_factory, project_id, requirement_id="REQ-1")
+    _add_requirement(session_factory, project_id, requirement_id="REQ-2", classification="ASSUMPTION")
+
+    requirements = get_requirements(project_id, session_factory=session_factory)
+
+    assert len(requirements) == 2
+    assert all(isinstance(r, Requirement) for r in requirements)
+    assert {r.requirement_id for r in requirements} == {"REQ-1", "REQ-2"}
+
+
+def test_get_requirements_project_isolation(session_factory):
+    project_a = _create_project(session_factory)
+    project_b = _create_project(session_factory)
+    _add_requirement(session_factory, project_a, requirement_id="REQ-A")
+    _add_requirement(session_factory, project_b, requirement_id="REQ-B")
+
+    requirements = get_requirements(project_a, session_factory=session_factory)
+
+    assert [r.requirement_id for r in requirements] == ["REQ-A"]
+
+
+def test_get_requirements_empty_project_returns_empty_list(session_factory):
+    project_id = _create_project(session_factory)
+
+    requirements = get_requirements(project_id, session_factory=session_factory)
+
+    assert requirements == []
