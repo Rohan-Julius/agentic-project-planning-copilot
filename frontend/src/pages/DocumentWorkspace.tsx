@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Project, ProjectDocument } from '../types'
+import type { Project, ProjectDocument, WorkflowRun } from '../types'
 
 export default function DocumentWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -18,6 +18,9 @@ export default function DocumentWorkspace() {
   const [textType, setTextType] = useState('')
   const [textContent, setTextContent] = useState('')
   const [savingText, setSavingText] = useState(false)
+
+  const [starting, setStarting] = useState(false)
+  const [workflowStatus, setWorkflowStatus] = useState<string | null>(null)
 
   function loadDocuments(id: string) {
     return api.get<ProjectDocument[]>(`/projects/${id}/documents`).then(setDocuments)
@@ -84,6 +87,20 @@ export default function DocumentWorkspace() {
       await loadDocuments(projectId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
+    }
+  }
+
+  async function handleStartWorkflow() {
+    if (!projectId) return
+    setError(null)
+    setStarting(true)
+    try {
+      const run = await api.post<WorkflowRun>(`/projects/${projectId}/workflow/start`, {})
+      setWorkflowStatus(run.status)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : (err as Error).message)
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -203,6 +220,33 @@ export default function DocumentWorkspace() {
                 </button>
               </div>
             </form>
+          </section>
+
+          <section className="panel">
+            <h2>Requirement analysis</h2>
+            <p className="muted">
+              Once your documents are uploaded, run requirement analysis to extract
+              requirements and generate clarification questions.
+            </p>
+            <div className="form-actions">
+              <button
+                className="button"
+                type="button"
+                onClick={handleStartWorkflow}
+                disabled={starting || documents.length === 0}
+              >
+                {starting ? 'Running…' : 'Run requirement analysis'}
+              </button>
+              {workflowStatus && (
+                <Link className="button" to={`/projects/${projectId}/clarifications`}>
+                  Review clarifications
+                </Link>
+              )}
+            </div>
+            {documents.length === 0 && (
+              <p className="muted">Upload at least one document first.</p>
+            )}
+            {workflowStatus && <p className="muted">Workflow status: {workflowStatus}</p>}
           </section>
         </>
       )}

@@ -9,12 +9,15 @@ import sqlite3
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
+from qdrant_client import QdrantClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
+from app.models.project import ProjectRecord
 from app.models.workflow import WorkflowEvent
+from app.services.vector_service import VectorService
 from app.workflow.graph import compile_graph
 from app.workflow.routes import NODE_FINAL_GATE
 
@@ -44,6 +47,7 @@ def _base_state(project_id="proj_x", **overrides) -> dict:
         "document_ids": [],
         "requirement_ids": [],
         "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 0,
         "clarification_approved": False,
         "plan_version_id": None,
         "reviewer_decision": None,
@@ -57,25 +61,46 @@ def _base_state(project_id="proj_x", **overrides) -> dict:
     return state
 
 
-def _config(thread_id, session_factory):
+def _config(thread_id, session_factory, vector_service=None):
     return {
-        "configurable": {"thread_id": thread_id, "session_factory": session_factory},
+        "configurable": {
+            "thread_id": thread_id,
+            "session_factory": session_factory,
+            "vector_service": vector_service,
+        },
         "recursion_limit": 20,
     }
 
 
-def test_fresh_run_hits_requirement_analyst_stub_then_stops_no_infinite_loop(
+def test_fresh_run_with_no_documents_terminates_without_infinite_loop(
     session_factory, checkpointer
 ):
+    """Day 9: requirement_analyst is a real agent now (calls live Ollama + Qdrant), not a
+    stub. A project with zero uploaded documents should honestly extract nothing (§12.6 —
+    never invent) rather than loop forever; §20.1 caps this at one retry (see
+    route_next_node's requirement_analysis_attempts check).
+    """
+    session = session_factory()
+    session.add(ProjectRecord(project_id="proj_x", name="Empty Project"))
+    session.commit()
+    session.close()
+
+    vector_service = VectorService(client=QdrantClient(location=":memory:"))
     graph = compile_graph(checkpointer)
-    config = _config("RUN-fresh", session_factory)
+    config = _config("RUN-fresh", session_factory, vector_service)
 
     result = graph.invoke(_base_state(), config=config)
 
-    assert "__interrupt__" not in result
-    assert result["current_stage"] == "stop_error"
-    assert result["errors"]
-    assert "RequirementAnalyst" in result["errors"][0]
+    # Whatever the live model decides, the run must not still be stuck re-running
+    # requirement_analyst indefinitely: either it found requirements and moved on past
+    # the node (interrupted at the clarification gate), or it honestly found nothing
+    # twice and controlled-stopped.
+    assert result.get("requirement_analysis_attempts", 0) <= 2
+    if result["requirement_ids"]:
+        assert "__interrupt__" in result
+    else:
+        assert result["current_stage"] == "stop_error"
+        assert result["errors"]
 
     session = session_factory()
     events = session.scalars(
@@ -83,8 +108,7 @@ def test_fresh_run_hits_requirement_analyst_stub_then_stops_no_infinite_loop(
     ).all()
     actions = [e.action for e in events]
     assert "EVALUATE_STATE" in actions  # supervisor
-    assert "NOT_IMPLEMENTED" in actions  # requirement_analyst stub
-    assert "STOP_WITH_ERROR" in actions  # stop_error terminal
+    assert "EXTRACT_REQUIREMENTS" in actions  # real requirement_analyst node ran
 
 
 def test_clarification_gate_interrupts_and_resumes(session_factory, checkpointer):
@@ -110,6 +134,28 @@ def test_clarification_gate_interrupts_and_resumes(session_factory, checkpointer
         select(WorkflowEvent).where(WorkflowEvent.workflow_run_id == "RUN-clarify")
     ).all()
     assert any(e.action == "RESUMED" for e in events)
+
+
+def test_clarification_approve_patch_releases_the_gate(session_factory, checkpointer):
+    """Day 10: unlike a bare Command(resume=...) (see the test above, which just
+    re-interrupts), patching clarification_approved=True via update_state before resuming
+    actually releases the gate — proven by reaching the still-stubbed planning node
+    (Day 11 not built yet) and controlled-stopping there.
+    """
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-approve", session_factory)
+
+    seeded = _base_state(requirement_ids=["REQ-1"], unresolved_question_ids=["CQ-1"])
+    first = graph.invoke(seeded, config=config)
+    assert "__interrupt__" in first
+    assert first["__interrupt__"][0].value["stage"] == "clarification_gate"
+
+    graph.update_state(config, {"clarification_approved": True})
+    resumed = graph.invoke(Command(resume="approved"), config=config)
+
+    assert "__interrupt__" not in resumed
+    assert resumed["current_stage"] == "stop_error"
+    assert any("Planning" in e for e in resumed["errors"])
 
 
 def test_revision_limit_reached_routes_to_final_gate_not_plan_revision(

@@ -30,3 +30,32 @@ export interface ProjectDocument {
   document_version: string
   status: string
 }
+
+export interface SourceReference {
+  document_name: string
+  page_number: number | null
+  section: string | null
+  chunk_id: string
+}
+
+export interface ClarificationQuestion {
+  question_id: string
+  category: string
+  question: string
+  reason_for_asking: string
+  related_requirement_id: string | null
+  source_reference: SourceReference | null
+  priority: 'Highest' | 'High' | 'Medium' | 'Low'
+  status: 'PENDING' | 'ANSWERED' | 'DEFERRED' | 'NOT_APPLICABLE'
+  user_answer: string | null
+}
+
+export interface WorkflowRun {
+  workflow_run_id: string
+  project_id: string
+  status: string
+  revision_count: number
+  final_approved: boolean
+  started_at: string
+  ended_at: string | null
+}

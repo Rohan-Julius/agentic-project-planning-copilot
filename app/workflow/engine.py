@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.workflow import WorkflowRun
+from app.services.vector_service import VectorService
 from app.workflow.graph import compile_graph
 from app.workflow.state import ProjectWorkflowState
 
@@ -42,6 +43,7 @@ def _initial_state(project_id: str) -> ProjectWorkflowState:
         "document_ids": [],
         "requirement_ids": [],
         "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 0,
         "clarification_approved": False,
         "plan_version_id": None,
         "reviewer_decision": None,
@@ -71,9 +73,22 @@ def _sync_run(session: Session, run: WorkflowRun, result: dict[str, Any]) -> Wor
     return run
 
 
-def _config(workflow_run_id: str, session_factory: sessionmaker) -> dict[str, Any]:
+def _config(
+    workflow_run_id: str,
+    session_factory: sessionmaker,
+    vector_service: VectorService | None,
+) -> dict[str, Any]:
     return {
-        "configurable": {"thread_id": workflow_run_id, "session_factory": session_factory},
+        "configurable": {
+            "thread_id": workflow_run_id,
+            "session_factory": session_factory,
+            # Threaded the same way as session_factory (see docstring below) so agent
+            # nodes that call retrieval tools (requirement_analyst, planning, reviewer)
+            # hit the test-overridden Qdrant instance instead of the process-wide
+            # get_vector_service() singleton. None preserves prior behavior — tools fall
+            # back to that singleton themselves when not given one.
+            "vector_service": vector_service,
+        },
         "recursion_limit": _RECURSION_LIMIT,
     }
 
@@ -83,11 +98,13 @@ def start_workflow(
     checkpointer: BaseCheckpointSaver,
     project_id: str,
     session_factory: sessionmaker,
+    vector_service: VectorService | None = None,
 ) -> WorkflowRun:
     """`session_factory` must be bound to the same engine as `session` — it's what graph
     nodes use to log `WorkflowEvent` rows mid-run (see graph.py `_log`); passing the
     production `get_sessionmaker()` singleton here instead of a test-overridden one would
-    silently write to the wrong database.
+    silently write to the wrong database. `vector_service` follows the same rule for
+    retrieval-tool calls.
     """
     workflow_run_id = generate_workflow_run_id()
     run = WorkflowRun(workflow_run_id=workflow_run_id, project_id=project_id, status=STATUS_RUNNING)
@@ -96,7 +113,10 @@ def start_workflow(
     session.refresh(run)
 
     graph = compile_graph(checkpointer)
-    result = graph.invoke(_initial_state(project_id), config=_config(workflow_run_id, session_factory))
+    result = graph.invoke(
+        _initial_state(project_id),
+        config=_config(workflow_run_id, session_factory, vector_service),
+    )
     return _sync_run(session, run, result)
 
 
@@ -106,11 +126,24 @@ def resume_workflow(
     workflow_run_id: str,
     resume_value: Any,
     session_factory: sessionmaker,
+    vector_service: VectorService | None = None,
+    state_patch: dict[str, Any] | None = None,
 ) -> WorkflowRun:
+    """`state_patch` applies a direct state update (via LangGraph's `update_state`) before
+    resuming — e.g. clarifications/approve (Day 10) sets `clarification_approved=True`,
+    plan/approve (Day 14) will set `final_approved=True`. The gate nodes themselves
+    (`clarification_gate_node`/`final_gate_node`) never read the interrupt's resume value,
+    so a bare `Command(resume=...)` alone just re-hits the same interrupt forever (see
+    test_clarification_gate_interrupts_and_resumes) — the state flag has to be set
+    out-of-band first.
+    """
     run = session.scalar(select(WorkflowRun).where(WorkflowRun.workflow_run_id == workflow_run_id))
     if run is None:
         raise ValueError(f"Workflow run '{workflow_run_id}' not found")
 
     graph = compile_graph(checkpointer)
-    result = graph.invoke(Command(resume=resume_value), config=_config(workflow_run_id, session_factory))
+    config = _config(workflow_run_id, session_factory, vector_service)
+    if state_patch:
+        graph.update_state(config, state_patch)
+    result = graph.invoke(Command(resume=resume_value), config=config)
     return _sync_run(session, run, result)

@@ -7,6 +7,7 @@ Returns RequirementAnalysisResult with all findings cited.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from app.agents.runner import run_agent
@@ -22,7 +23,9 @@ from app.tools.retrieval_tools import (
 )
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, sessionmaker
+
+    from app.services.vector_service import VectorService
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,8 @@ def run_requirement_analyst_agent(
     project_id: str,
     workflow_run_id: str,
     *,
-    session: Session | None = None,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
+    vector_service: "VectorService | None" = None,
 ) -> RequirementAnalysisResult:
     """Execute the Requirement Analyst Agent (spec §7.2).
 
@@ -46,7 +50,7 @@ def run_requirement_analyst_agent(
     Args:
         project_id: project being analyzed (mandatory project filter per §12.3)
         workflow_run_id: for audit trail (§21)
-        session: SQLAlchemy session (injected for tests; defaults to process session)
+        session_factory: SQLAlchemy session factory (injected for tests; uses default if None)
 
     Returns:
         RequirementAnalysisResult with requirements, actors, contradictions,
@@ -56,14 +60,18 @@ def run_requirement_analyst_agent(
         AgentError: if Ollama returns invalid JSON twice (§20.1)
     """
     # Gather initial context
-    project_info = get_project_information(project_id)
+    project_info = get_project_information(project_id, session_factory=session_factory)
     logger.info(f"[Requirement Analyst] analyzing project {project_id}, run {workflow_run_id}")
 
     # Retrieve sample project documents for context window (top 10 most relevant)
-    doc_samples = search_project_documents(project_id, "requirements", top_k=10)
+    doc_samples = search_project_documents(
+        project_id, "requirements", top_k=10, vector_service=vector_service
+    )
 
     # Retrieve relevant company standards (user story template, DoR/DoD)
-    standards = search_company_standards("user story template", category=None, top_k=3)
+    standards = search_company_standards(
+        "user story template", category=None, top_k=3, vector_service=vector_service
+    )
 
     # Build system prompt (analyst role + tasks + grounding + injection guard)
     system_prompt = """
@@ -142,7 +150,7 @@ Name: {chunk.document_name} (page {chunk.page_number or '?'})
 Section: {chunk.section or 'N/A'}
 Chunk ID: {chunk.chunk_id}
 Content:
-{chunk.content}
+{chunk.text}
 ---
 """
 
@@ -150,7 +158,7 @@ Content:
     if standards:
         user_prompt += "\nCOMPANY STANDARDS & TEMPLATES:\n"
         for i, standard in enumerate(standards[:3], 1):
-            user_prompt += f"\n[Standard {i}]\n{standard.content[:300]}...\n"
+            user_prompt += f"\n[Standard {i}]\n{standard.text[:300]}...\n"
 
     user_prompt += """
 INSTRUCTIONS:
@@ -187,8 +195,10 @@ CRITICAL:
     )
 
     # Persist findings to database
-    save_requirements(project_id, result, workflow_run_id, session_factory=None)
-    save_clarification_questions(project_id, result, workflow_run_id, session_factory=None)
+    save_requirements(project_id, result, workflow_run_id, session_factory=session_factory)
+    save_clarification_questions(
+        project_id, result, workflow_run_id, session_factory=session_factory
+    )
 
     return result
 

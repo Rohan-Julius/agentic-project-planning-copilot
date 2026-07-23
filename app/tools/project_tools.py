@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database.session import get_sessionmaker
 from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
-from app.schemas.clarification import ClarificationAnswerInfo
+from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQuestion
 from app.schemas.project import ProjectInfo
 from app.schemas.requirement import RequirementAnalysisResult
 from app.services import project_service
@@ -142,5 +142,26 @@ def save_clarification_questions(
             )
             session.add(q_record)
         session.commit()
+    finally:
+        session.close()
+
+
+def get_clarification_answers(
+    project_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> list[ClarificationQuestion]:
+    """§9.6 — every clarification question for a project with its current status/answer.
+    Used by later agents (Planning Agent, Day 11+) to consume human clarification input.
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        records = session.scalars(
+            select(ClarificationQuestionRecord).where(
+                ClarificationQuestionRecord.project_id == project_id
+            )
+        ).all()
+        return [ClarificationQuestion.model_validate(r.payload_json) for r in records]
     finally:
         session.close()

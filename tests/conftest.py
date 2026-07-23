@@ -57,5 +57,6 @@ def client(tmp_path):
         # isn't itself behind FastAPI DI) against the exact same in-memory Qdrant the API
         # endpoints just wrote to/deleted from.
         test_client.vector_service = test_vector_service
+        test_client.checkpointer = test_checkpointer
         yield test_client
     app.dependency_overrides.clear()

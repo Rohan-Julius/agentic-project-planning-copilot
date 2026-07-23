@@ -36,3 +36,12 @@ class ClarificationAnswerInfo(BaseModel):
     question: str
     status: ClarificationStatus
     user_answer: str | None = None
+
+
+class ClarificationAnswerSubmission(BaseModel):
+    """Request body for POST .../clarifications/answers (spec §11: answer/defer/N-A/edit)."""
+
+    question_id: str
+    status: ClarificationStatus
+    user_answer: str | None = None
+    question: str | None = None  # present only when the user edited the question text
