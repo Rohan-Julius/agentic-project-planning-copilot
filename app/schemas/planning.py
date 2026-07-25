@@ -85,6 +85,40 @@ class PlanningEpicsResult(BaseModel):
     epics: list[EpicDraft] = Field(default_factory=list)
 
 
+class AcceptanceCriterionDraft(BaseModel):
+    """LLM-facing AC shape (DESIGN.md §0.2): identical to AcceptanceCriterion minus
+    criterion_id — IDs are minted deterministically after generation."""
+
+    given: str
+    when: str
+    then: str
+
+
+class UserStoryDraft(GroundedMixin):
+    """LLM-facing story shape (DESIGN.md §0.2, §8.3): identical to UserStory minus
+    story_id and each AC's criterion_id. `epic_id` IS supplied by the model — it is a
+    reference to an already-minted Epic, not a new identity being proposed.
+    """
+
+    epic_id: str = Field(min_length=1)
+    title: str
+    persona: str
+    story_statement: str
+    business_value: str
+    priority: Priority
+    acceptance_criteria: list[AcceptanceCriterionDraft] = Field(min_length=1)
+    dependencies: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    suggested_story_points: int | None = Field(default=None, ge=0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class PlanningStoriesResult(BaseModel):
+    """Output shape of the Planning Agent's third generation call (stories + AC)."""
+
+    stories: list[UserStoryDraft] = Field(default_factory=list)
+
+
 class UserStory(GroundedMixin):
     """Spec §13.6, §14 example.
 
@@ -156,6 +190,63 @@ class Issue(BaseModel):
     description: str
     status: str = "OPEN"
     source_references: list[SourceReference] = Field(default_factory=list)
+
+
+class TechnicalTaskDraft(BaseModel):
+    """LLM-facing technical-task shape (DESIGN.md §0.2): identical to TechnicalTask minus
+    task_id."""
+
+    story_id: str | None = None
+    category: TechnicalTaskCategory
+    description: str
+
+
+class DependencyDraft(BaseModel):
+    """LLM-facing dependency shape (DESIGN.md §0.2): identical to Dependency minus
+    dependency_id."""
+
+    blocking_item_id: str
+    blocked_item_id: str
+    dependency_type: DependencyType
+    description: str = ""
+    suggested_resolution: str = ""
+
+
+class RiskDraft(GroundedMixin):
+    """LLM-facing risk shape (DESIGN.md §0.2): identical to Risk minus risk_id."""
+
+    description: str
+    probability: ImpactLevel
+    impact: ImpactLevel
+    severity: ImpactLevel
+    mitigation: str
+    contingency: str
+
+
+class AssumptionDraft(GroundedMixin):
+    """LLM-facing assumption shape (DESIGN.md §0.2): identical to Assumption minus
+    assumption_id."""
+
+    description: str
+
+
+class IssueDraft(BaseModel):
+    """LLM-facing issue shape (DESIGN.md §0.2): identical to Issue minus issue_id."""
+
+    description: str
+    status: str = "OPEN"
+    source_references: list[SourceReference] = Field(default_factory=list)
+
+
+class PlanningTasksDepsRaidResult(BaseModel):
+    """Output shape of the Planning Agent's fourth generation call (tasks + dependencies +
+    RAID)."""
+
+    technical_tasks: list[TechnicalTaskDraft] = Field(default_factory=list)
+    dependencies: list[DependencyDraft] = Field(default_factory=list)
+    risks: list[RiskDraft] = Field(default_factory=list)
+    assumptions: list[AssumptionDraft] = Field(default_factory=list)
+    issues: list[IssueDraft] = Field(default_factory=list)
 
 
 class RaidLog(BaseModel):

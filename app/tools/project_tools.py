@@ -12,9 +12,12 @@ from collections.abc import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import get_settings
 from app.database.session import get_sessionmaker
+from app.models.plan_artifact import PlanArtifactVersion
 from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
 from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQuestion
+from app.schemas.planning import ProjectPlan
 from app.schemas.project import ProjectInfo
 from app.schemas.requirement import Requirement, RequirementAnalysisResult
 from app.services import project_service
@@ -184,5 +187,47 @@ def get_requirements(
             select(RequirementRecord).where(RequirementRecord.project_id == project_id)
         ).all()
         return [Requirement.model_validate(r.payload_json) for r in records]
+    finally:
+        session.close()
+
+
+def save_planning_artifacts(
+    project_id: str,
+    plan: ProjectPlan,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> str:
+    """Persist a generated plan as a new version (spec §9.7, §22): any previous current
+    version is marked not-current, and the new one becomes current. Returns the new
+    version_id.
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        previous = session.scalars(
+            select(PlanArtifactVersion).where(
+                PlanArtifactVersion.project_id == project_id,
+                PlanArtifactVersion.is_current.is_(True),
+            )
+        ).all()
+        next_version_number = 1
+        for row in previous:
+            row.is_current = False
+            next_version_number = max(next_version_number, row.version_number + 1)
+
+        version_id = f"ver_{uuid.uuid4().hex[:12]}"
+        session.add(
+            PlanArtifactVersion(
+                version_id=version_id,
+                project_id=project_id,
+                version_number=next_version_number,
+                plan_json=plan.model_dump(mode="json"),
+                model=get_settings().llm_model,
+                prompt_version="planning-v1",
+                is_current=True,
+            )
+        )
+        session.commit()
+        return version_id
     finally:
         session.close()

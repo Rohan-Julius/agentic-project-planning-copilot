@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
+from app.models.plan_artifact import PlanArtifactVersion
 from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
+from app.schemas.planning import ProjectPlan, ProjectSummary, Scope
 from app.schemas.project import ProjectCreate
 from app.schemas.requirement import Requirement
 from app.services import project_service
-from app.tools.project_tools import get_project_information, get_requirements
+from app.tools.project_tools import get_project_information, get_requirements, save_planning_artifacts
 
 
 @pytest.fixture
@@ -169,3 +171,46 @@ def test_get_requirements_empty_project_returns_empty_list(session_factory):
     requirements = get_requirements(project_id, session_factory=session_factory)
 
     assert requirements == []
+
+
+# --- save_planning_artifacts (Day 12: plan persistence and versioning, spec §9.7, §22) ---
+
+def _minimal_plan() -> ProjectPlan:
+    return ProjectPlan(
+        summary=ProjectSummary(business_problem="X", proposed_solution="Y"),
+        scope=Scope(in_scope=["A"]),
+    )
+
+
+def test_save_planning_artifacts_creates_first_version(session_factory):
+    project_id = _create_project(session_factory)
+
+    version_id = save_planning_artifacts(project_id, _minimal_plan(), session_factory=session_factory)
+
+    session = session_factory()
+    row = session.execute(
+        select(PlanArtifactVersion).where(PlanArtifactVersion.version_id == version_id)
+    ).scalar_one()
+    session.close()
+    assert row.project_id == project_id
+    assert row.version_number == 1
+    assert row.is_current is True
+    assert row.plan_json["summary"]["business_problem"] == "X"
+
+
+def test_save_planning_artifacts_increments_version_and_unsets_previous_current(session_factory):
+    project_id = _create_project(session_factory)
+    save_planning_artifacts(project_id, _minimal_plan(), session_factory=session_factory)
+    second_id = save_planning_artifacts(project_id, _minimal_plan(), session_factory=session_factory)
+
+    session = session_factory()
+    rows = session.execute(
+        select(PlanArtifactVersion).where(PlanArtifactVersion.project_id == project_id)
+    ).scalars().all()
+    session.close()
+
+    assert len(rows) == 2
+    current = [r for r in rows if r.is_current]
+    assert len(current) == 1
+    assert current[0].version_id == second_id
+    assert current[0].version_number == 2

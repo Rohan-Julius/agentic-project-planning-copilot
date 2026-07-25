@@ -1,10 +1,10 @@
-"""Planning Agent — summary, scope, and epics (spec §7.3, §13.3-§13.5, DESIGN.md §8.3).
+"""Planning Agent — summary, scope, epics, and stories (spec §7.3, §13.3-§13.6, DESIGN.md §8.3).
 
-Day 11 scope only: the first two calls of the multi-call generation sequence described in
-DESIGN.md §8.3 ("summary+scope → epics → stories+AC → tasks+deps+RAID → sprint+traceability").
-Stories, tasks, RAID, sprint plan, and `save_planning_artifacts` persistence land Day 12/13 —
-this module intentionally returns plain Python objects rather than writing anything to the
-database or to workflow state.
+The first three calls of the multi-call generation sequence described in DESIGN.md §8.3
+("summary+scope → epics → stories+AC → tasks+deps+RAID → sprint+traceability"). Tasks, RAID,
+sprint plan, and `save_planning_artifacts` persistence land later in the sequence — this
+module intentionally returns plain Python objects rather than writing anything to the
+database or to workflow state until the full plan is assembled.
 """
 from __future__ import annotations
 
@@ -16,18 +16,35 @@ from app.agents.runner import run_agent
 from app.schemas.clarification import ClarificationQuestion
 from app.schemas.document import RetrievedChunk
 from app.schemas.planning import (
+    AcceptanceCriterion,
+    Assumption,
+    Dependency,
     Epic,
     EpicDraft,
+    Issue,
     PlanningEpicsResult,
+    PlanningStoriesResult,
     PlanningSummaryScopeResult,
+    PlanningTasksDepsRaidResult,
+    ProjectPlan,
     ProjectSummary,
+    RaidLog,
+    Risk,
     Scope,
+    Sprint,
+    SprintPlan,
+    TechnicalTask,
+    TraceabilityMatrix,
+    TraceabilityRow,
+    UserStory,
+    UserStoryDraft,
 )
 from app.schemas.requirement import Requirement
 from app.tools.project_tools import (
     get_clarification_answers,
     get_project_information,
     get_requirements,
+    save_planning_artifacts,
 )
 from app.tools.retrieval_tools import search_company_standards
 
@@ -249,3 +266,414 @@ COMPANY STANDARDS:
     logger.info(f"[Planning] generated {len(epics)} epics")
 
     return summary_scope.summary, summary_scope.scope, epics
+
+
+_STORIES_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
+Generate the USER STORIES (with acceptance criteria) for this project's plan from the approved
+requirements, answered clarification answers, company standards, and the epics already produced.
+
+STORY FORMAT (spec §7.3): every story_statement MUST follow "As a [persona], I want
+[capability], so that [business benefit]."
+
+ACCEPTANCE-CRITERIA FORMAT (spec §7.3): each acceptance criterion is a separate
+Given/When/Then triple; every story needs at least one.
+
+PLANNING RULES (spec §7.3, §13.6):
+- Every story's "epic_id" MUST be one of the exact epic IDs listed below under EPICS. Never
+  invent a new epic_id or leave it blank.
+- Classify every story (spec §12.5): SOURCE_BACKED / CLARIFICATION_BACKED / ASSUMPTION /
+  AI_RECOMMENDATION. If SOURCE_BACKED, source_references MUST reuse an exact
+  document_name/page_number/section/chunk_id already attached to the requirement(s) the story
+  comes from — never invent a chunk_id.
+- Avoid duplicate or overlapping stories; each story should be a distinct piece of work.
+- suggested_story_points and priority are suggestions, not guaranteed estimates.
+- {_NO_INVENTED_TECH_RULE}
+- Do not propose a "story_id" or a "criterion_id" for any acceptance criterion — those IDs
+  are assigned deterministically after generation.
+
+NO-EVIDENCE BEHAVIOUR (spec §12.6): if the approved requirements do not support a distinct
+story under a given epic, do not invent one.
+
+{_INJECTION_GUARD}
+
+OUTPUT REQUIREMENTS: return valid JSON matching the PlanningStoriesResult schema exactly."""
+
+
+def _format_epics(epics: list[Epic]) -> str:
+    if not epics:
+        return "(no epics available)"
+    return "\n".join(f"[{e.epic_id}] {e.title} — {e.objective}" for e in epics)
+
+
+def _filter_stories_with_unknown_epic(
+    drafts: list[UserStoryDraft], known_epic_ids: set[str]
+) -> list[UserStoryDraft]:
+    valid, dropped = [], []
+    for draft in drafts:
+        (valid if draft.epic_id in known_epic_ids else dropped).append(draft)
+    if dropped:
+        logger.warning(
+            f"[Planning] dropped {len(dropped)} stories referencing unknown epic_id(s): "
+            f"{sorted({d.epic_id for d in dropped})}"
+        )
+    return valid
+
+
+def _assign_story_and_ac_ids(drafts: list[UserStoryDraft]) -> list[UserStory]:
+    """Deterministic ID minting (DESIGN.md §0.2) for stories and their nested acceptance
+    criteria — mirrors `_assign_epic_ids`; `criterion_id`s are numbered globally across the
+    whole plan in generation order, `story_id`s per story.
+    """
+    stories: list[UserStory] = []
+    ac_counter = 0
+    for i, draft in enumerate(drafts, start=1):
+        criteria: list[AcceptanceCriterion] = []
+        for ac_draft in draft.acceptance_criteria:
+            ac_counter += 1
+            criteria.append(
+                AcceptanceCriterion(criterion_id=f"AC-{ac_counter:03d}", **ac_draft.model_dump())
+            )
+        story_data = draft.model_dump(exclude={"acceptance_criteria"})
+        stories.append(
+            UserStory(story_id=f"US-{i:03d}", acceptance_criteria=criteria, **story_data)
+        )
+    return stories
+
+
+def _generate_stories(
+    project_info,
+    requirements: list[Requirement],
+    clarifications: list[ClarificationQuestion],
+    standards: list[RetrievedChunk],
+    epics: list[Epic],
+) -> list[UserStory]:
+    req_block = _format_requirements(requirements)
+    clarif_block = _format_answered_clarifications(clarifications)
+    standards_block = _format_standards(standards)
+    epics_block = _format_epics(epics)
+
+    prompt = f"""{_STORIES_SYSTEM_PROMPT}
+
+PROJECT CONTEXT:
+- Name: {project_info.name}
+- Description: {project_info.description}
+
+EPICS (reference these exact epic_id values):
+{epics_block}
+
+APPROVED REQUIREMENTS:
+{req_block}
+
+ANSWERED CLARIFICATIONS:
+{clarif_block}
+
+COMPANY STANDARDS:
+{standards_block}
+"""
+    result = run_agent(
+        agent_name="planning_stories",
+        prompt=prompt,
+        output_model=PlanningStoriesResult,
+        max_retries=1,
+    )
+    known_epic_ids = {e.epic_id for e in epics}
+    valid_drafts = _filter_stories_with_unknown_epic(result.stories, known_epic_ids)
+    return _assign_story_and_ac_ids(valid_drafts)
+
+
+_TASKS_DEPS_RAID_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
+Generate TECHNICAL TASKS, DEPENDENCIES, and a RAID log (Risks, Assumptions, Issues) from the
+approved requirements, answered clarification answers, company standards, and the epics and
+stories already produced.
+
+PLANNING RULES (spec §7.3, §13.7, §13.8, §13.9):
+- Technical tasks are RECOMMENDATIONS, not confirmed technical requirements — a task's
+  "story_id" (if set) MUST be one of the exact story IDs listed below, or left null if it is a
+  project-wide task not tied to one story.
+- Dependencies: "blocking_item_id" and "blocked_item_id" MUST each be one of the exact epic_id
+  or story_id values listed below. Never invent an ID.
+- Risks: set probability, impact, and severity (Low/Medium/High) and provide both a mitigation
+  and a contingency.
+- Classify every risk and assumption (spec §12.5): SOURCE_BACKED / CLARIFICATION_BACKED /
+  ASSUMPTION / AI_RECOMMENDATION. If SOURCE_BACKED, source_references MUST reuse an exact
+  citation already attached to the requirement(s) they come from — never invent a chunk_id.
+- {_NO_INVENTED_TECH_RULE}
+- Do not propose a "task_id", "dependency_id", "risk_id", "assumption_id", or "issue_id" —
+  those IDs are assigned deterministically after generation.
+
+{_INJECTION_GUARD}
+
+OUTPUT REQUIREMENTS: return valid JSON matching the PlanningTasksDepsRaidResult schema
+exactly."""
+
+
+def _format_stories(stories: list[UserStory]) -> str:
+    if not stories:
+        return "(no stories available)"
+    return "\n".join(f"[{s.story_id}] ({s.epic_id}) {s.title}" for s in stories)
+
+
+def _assign_tasks_deps_raid_ids(
+    result: PlanningTasksDepsRaidResult,
+    known_story_ids: set[str],
+    known_dependency_ids: set[str],
+) -> tuple[list[TechnicalTask], RaidLog]:
+    """Deterministic ID minting (DESIGN.md §0.2) plus reference validation: a task whose
+    story_id is unknown has it nulled (the task content is still useful on its own); a
+    dependency whose endpoints don't both resolve is dropped, since a dangling dependency
+    reference is meaningless and would fail Day 13's deterministic validator anyway.
+    """
+    tasks = []
+    for i, draft in enumerate(result.technical_tasks, start=1):
+        story_id = draft.story_id if draft.story_id in known_story_ids else None
+        tasks.append(
+            TechnicalTask(
+                task_id=f"TASK-{i:03d}",
+                story_id=story_id,
+                category=draft.category,
+                description=draft.description,
+            )
+        )
+
+    deps = []
+    dropped = 0
+    for draft in result.dependencies:
+        if (
+            draft.blocking_item_id not in known_dependency_ids
+            or draft.blocked_item_id not in known_dependency_ids
+        ):
+            dropped += 1
+            continue
+        deps.append(Dependency(dependency_id=f"DEP-{len(deps) + 1:03d}", **draft.model_dump()))
+    if dropped:
+        logger.warning(f"[Planning] dropped {dropped} dependencies referencing unknown IDs")
+
+    risks = [Risk(risk_id=f"RISK-{i:03d}", **d.model_dump()) for i, d in enumerate(result.risks, start=1)]
+    assumptions = [
+        Assumption(assumption_id=f"ASSUMP-{i:03d}", **d.model_dump())
+        for i, d in enumerate(result.assumptions, start=1)
+    ]
+    issues = [Issue(issue_id=f"ISSUE-{i:03d}", **d.model_dump()) for i, d in enumerate(result.issues, start=1)]
+
+    raid = RaidLog(risks=risks, assumptions=assumptions, issues=issues, dependencies=deps)
+    return tasks, raid
+
+
+def _generate_tasks_deps_raid(
+    project_info,
+    requirements: list[Requirement],
+    clarifications: list[ClarificationQuestion],
+    standards: list[RetrievedChunk],
+    epics: list[Epic],
+    stories: list[UserStory],
+) -> tuple[list[TechnicalTask], RaidLog]:
+    req_block = _format_requirements(requirements)
+    clarif_block = _format_answered_clarifications(clarifications)
+    standards_block = _format_standards(standards)
+    epics_block = _format_epics(epics)
+    stories_block = _format_stories(stories)
+
+    prompt = f"""{_TASKS_DEPS_RAID_SYSTEM_PROMPT}
+
+PROJECT CONTEXT:
+- Name: {project_info.name}
+- Description: {project_info.description}
+
+EPICS:
+{epics_block}
+
+STORIES:
+{stories_block}
+
+APPROVED REQUIREMENTS:
+{req_block}
+
+ANSWERED CLARIFICATIONS:
+{clarif_block}
+
+COMPANY STANDARDS:
+{standards_block}
+"""
+    result = run_agent(
+        agent_name="planning_tasks_deps_raid",
+        prompt=prompt,
+        output_model=PlanningTasksDepsRaidResult,
+        max_retries=1,
+    )
+    known_story_ids = {s.story_id for s in stories}
+    known_dependency_ids = known_story_ids | {e.epic_id for e in epics}
+    return _assign_tasks_deps_raid_ids(result, known_story_ids, known_dependency_ids)
+
+
+_SPRINT_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
+Generate a preliminary SPRINT PLAN (Agile/Scrum only) that allocates the stories already
+produced across sprints, considering project duration, team size, dependencies, and story
+priorities (spec §13.10).
+
+PLANNING RULES (spec §13.10):
+- Every story_id used MUST be one of the exact story IDs listed below. Never invent one.
+- Any story that does not fit in a sprint must be listed in "unscheduled_story_ids", not
+  silently dropped.
+- story_point_total for a sprint should sum the suggested_story_points of the stories
+  assigned to it (unestimated stories contribute 0).
+- This is always a draft for human review — never claim certainty about delivery dates.
+- {_NO_INVENTED_TECH_RULE}
+
+{_INJECTION_GUARD}
+
+OUTPUT REQUIREMENTS: return valid JSON matching the SprintPlan schema exactly."""
+
+
+def _normalize_sprint_plan(plan: SprintPlan, known_story_ids: set[str]) -> SprintPlan:
+    """Deterministic safety net: renumbers sprints sequentially from 1 and drops any
+    story_id reference (in a sprint or in unscheduled_story_ids) that doesn't resolve
+    against the stories actually produced.
+    """
+    sprints = []
+    for i, sprint in enumerate(plan.sprints, start=1):
+        sprints.append(
+            Sprint(
+                sprint_number=i,
+                sprint_goal=sprint.sprint_goal,
+                story_ids=[sid for sid in sprint.story_ids if sid in known_story_ids],
+                story_point_total=sprint.story_point_total,
+            )
+        )
+    unscheduled = [sid for sid in plan.unscheduled_story_ids if sid in known_story_ids]
+    return SprintPlan(
+        suggested_sprint_count=plan.suggested_sprint_count,
+        sprints=sprints,
+        dependency_considerations=plan.dependency_considerations,
+        unscheduled_story_ids=unscheduled,
+    )
+
+
+def _generate_sprint_plan(project_info, stories: list[UserStory]) -> SprintPlan:
+    stories_block = (
+        "\n".join(
+            f"[{s.story_id}] {s.title} (priority={s.priority}, points={s.suggested_story_points})"
+            for s in stories
+        )
+        or "(no stories available)"
+    )
+
+    prompt = f"""{_SPRINT_SYSTEM_PROMPT}
+
+PROJECT CONTEXT:
+- Name: {project_info.name}
+- Expected Duration: {project_info.expected_duration_weeks} weeks
+- Team: {project_info.team_composition}
+
+STORIES:
+{stories_block}
+"""
+    plan = run_agent(
+        agent_name="planning_sprint",
+        prompt=prompt,
+        output_model=SprintPlan,
+        max_retries=1,
+    )
+    return _normalize_sprint_plan(plan, {s.story_id for s in stories})
+
+
+def _build_traceability_matrix(
+    requirements: list[Requirement], epics: list[Epic], stories: list[UserStory]
+) -> TraceabilityMatrix:
+    """Built deterministically, not via LLM (DESIGN.md §8 classifies traceability as
+    deterministic work): a requirement is linked to an epic/story when they share at least
+    one citation chunk_id, since neither Epic nor UserStory stores a separate
+    requirement_id link. This also avoids a 6th LLM call for pure data-joining.
+    """
+    rows: list[TraceabilityRow] = []
+    for req in requirements:
+        req_chunk_ids = {ref.chunk_id for ref in req.source_references}
+        matched = False
+        for epic in epics:
+            epic_chunk_ids = {ref.chunk_id for ref in epic.source_references}
+            if not (req_chunk_ids & epic_chunk_ids):
+                continue
+            epic_stories = [s for s in stories if s.epic_id == epic.epic_id]
+            if not epic_stories:
+                rows.append(
+                    TraceabilityRow(
+                        requirement_id=req.requirement_id,
+                        source_references=req.source_references,
+                        epic_id=epic.epic_id,
+                    )
+                )
+                matched = True
+                continue
+            for story in epic_stories:
+                rows.append(
+                    TraceabilityRow(
+                        requirement_id=req.requirement_id,
+                        source_references=req.source_references,
+                        epic_id=epic.epic_id,
+                        story_id=story.story_id,
+                        acceptance_criterion_ids=[ac.criterion_id for ac in story.acceptance_criteria],
+                    )
+                )
+                matched = True
+        if not matched:
+            rows.append(
+                TraceabilityRow(requirement_id=req.requirement_id, source_references=req.source_references)
+            )
+    return TraceabilityMatrix(rows=rows)
+
+
+def run_planning_agent(
+    project_id: str,
+    workflow_run_id: str,
+    *,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
+    vector_service: "VectorService | None" = None,
+) -> ProjectPlan:
+    """Execute the full Planning Agent generation sequence (DESIGN.md §8.3): summary+scope
+    → epics → stories+AC → tasks+deps+RAID → sprint plan, then a deterministic traceability
+    matrix, assembled and validated as one `ProjectPlan` and persisted via
+    `save_planning_artifacts`.
+
+    Re-fetches requirements/clarifications/standards independently of the summary+scope+
+    epics call above (which does its own fetching) rather than threading a shared context
+    object through every helper — an acceptable duplication of cheap local reads for this
+    PoC's scope, not a live LLM call.
+    """
+    summary, scope, epics = run_planning_agent_summary_scope_epics(
+        project_id, workflow_run_id, session_factory=session_factory, vector_service=vector_service
+    )
+
+    project_info = get_project_information(project_id, session_factory=session_factory)
+    requirements = get_requirements(project_id, session_factory=session_factory)
+    clarifications = get_clarification_answers(project_id, session_factory=session_factory)
+    standards = search_company_standards(
+        "project scope definition of ready definition of done",
+        category=None,
+        top_k=3,
+        vector_service=vector_service,
+    )
+
+    stories = _generate_stories(project_info, requirements, clarifications, standards, epics)
+    technical_tasks, raid = _generate_tasks_deps_raid(
+        project_info, requirements, clarifications, standards, epics, stories
+    )
+    sprint_plan = _generate_sprint_plan(project_info, stories)
+    traceability = _build_traceability_matrix(requirements, epics, stories)
+
+    plan = ProjectPlan(
+        summary=summary,
+        scope=scope,
+        epics=epics,
+        stories=stories,
+        technical_tasks=technical_tasks,
+        raid=raid,
+        sprint_plan=sprint_plan,
+        traceability=traceability,
+    )
+
+    save_planning_artifacts(project_id, plan, session_factory=session_factory)
+
+    logger.info(
+        f"[Planning] project {project_id}: plan complete — {len(epics)} epics, "
+        f"{len(stories)} stories, {len(technical_tasks)} tasks"
+    )
+    return plan
