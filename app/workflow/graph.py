@@ -1,11 +1,8 @@
 """LangGraph state graph (Day 7, DESIGN.md §7.1/§7.2, spec §10/§19).
 
-As of Day 13, only `export` remains a stub (ships Day 14, spec §9.11/§16.8). `supervisor`,
-`requirement_analyst`, `planning`, `reviewer`, and `plan_revision` are all real nodes; a stub
-still records a `WorkflowEvent` and appends to `state["errors"]`, and the router
-(`route_next_node`) sends the run straight to `stop_error` on the very next pass, since any
-non-empty `errors` is an unconditional controlled stop (see docs/DAY7_UNDERSTANDING.md
-decision 1).
+As of Day 14, every node is real — no stubs remain. `export` marks the run complete; actual
+JSON/Markdown/Jira-CSV/ZIP file generation happens on demand via the export API endpoints
+(app/api/export.py), which always regenerate from the current persisted plan.
 
 `clarification_gate` and `final_gate` are real, not stubs: they only depend on state flags
 set by tools/endpoints, never on agent reasoning, so the interrupt/resume machinery itself
@@ -34,12 +31,6 @@ from app.workflow.routes import (
     route_next_node,
 )
 from app.workflow.state import ProjectWorkflowState
-
-# (display agent name, day it ships) — PROJECT_PLAN.md. Only export remains a stub after
-# Day 13; planning/reviewer/plan_revision are real nodes below.
-_NOT_IMPLEMENTED = {
-    NODE_EXPORT: ("Export", 14),
-}
 
 
 def _log(state: ProjectWorkflowState, config: RunnableConfig, **fields: Any) -> None:
@@ -346,18 +337,18 @@ def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> d
         }
 
 
-def _stub_node_factory(node_name: str):
-    agent_name, day = _NOT_IMPLEMENTED[node_name]
-
-    def node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
-        message = f"{agent_name} agent is not implemented yet (ships Day {day})"
-        _log(
-            state, config, agent=agent_name, stage=node_name,
-            action="NOT_IMPLEMENTED", status="ERROR", error=message,
-        )
-        return {"errors": [*state["errors"], message]}
-
-    return node
+def export_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
+    """§7.2 'export' node — deterministic, no LLM. Only reachable once `final_approved` is
+    True (see route_next_node), so it never runs on an unapproved plan. It does not write
+    any files itself: JSON/Markdown/Jira-CSV/ZIP generation is the export API's job
+    (app/api/export.py), triggered on demand and always regenerated from the current
+    persisted plan rather than trusting a file written earlier in the run (§20.5).
+    """
+    _log(
+        state, config, agent="Workflow", stage=NODE_EXPORT,
+        action="WORKFLOW_COMPLETE", status="SUCCESS",
+    )
+    return {"current_stage": NODE_EXPORT}
 
 
 def clarification_gate_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
@@ -391,7 +382,7 @@ def build_graph() -> StateGraph:
     graph.add_node(NODE_PLANNING, planning_node)
     graph.add_node(NODE_REVIEWER, reviewer_node)
     graph.add_node(NODE_PLAN_REVISION, plan_revision_node)
-    graph.add_node(NODE_EXPORT, _stub_node_factory(NODE_EXPORT))
+    graph.add_node(NODE_EXPORT, export_node)
     graph.add_node(NODE_CLARIFICATION_GATE, clarification_gate_node)
     graph.add_node(NODE_FINAL_GATE, final_gate_node)
     graph.add_node(NODE_STOP_ERROR, stop_error_node)

@@ -199,5 +199,13 @@ def test_approve_releases_the_clarification_gate(client):
     assert response.status_code == 200
     body = response.json()
     assert body["workflow_run_id"] == workflow_run_id
-    # Gate released -> routed to the still-stubbed planning node (Day 11) -> controlled stop.
-    assert body["status"] == "ERROR"
+    # Gate released -> planning_node runs for real (Day 13) against zero persisted
+    # requirements (REQ-1 was only faked in workflow state above, never written to the DB,
+    # so get_requirements() legitimately finds nothing). Either the Planning Agent honestly
+    # produces a plan from no requirements and the run reaches final_gate
+    # (WAITING_FOR_HUMAN_INPUT), or it controlled-stops (ERROR) — the live model's exact
+    # behavior isn't the point of this test, only that the gate-release wiring itself
+    # (find run, patch state, resume) works and the run doesn't silently vanish or crash
+    # uncaught. Mirrors test_clarification_approve_patch_releases_the_gate in
+    # test_workflow_graph.py, which tolerates the same two outcomes for the same reason.
+    assert body["status"] in ("WAITING_FOR_HUMAN_INPUT", "ERROR")

@@ -63,6 +63,13 @@ class Settings(BaseSettings):
         return self.data_dir / "documents"
 
     @property
+    def exports_dir(self) -> Path:
+        """Per spec §20.2: exports are written here, never into documents_dir — an export
+        must never overwrite a source document.
+        """
+        return self.data_dir / "exports"
+
+    @property
     def checkpoint_db_path(self) -> Path:
         """LangGraph's SQLite-backed checkpointer (DESIGN.md §7.5) — separate from the
         application's own `sqlite_url` DB so graph checkpoints and application rows can be
@@ -77,4 +84,5 @@ def get_settings() -> Settings:
     settings = Settings()
     # Ensure local data directories exist in dev; harmless if already present.
     os.makedirs(settings.documents_dir, exist_ok=True)
+    os.makedirs(settings.exports_dir, exist_ok=True)
     return settings

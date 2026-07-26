@@ -8,7 +8,17 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import clarifications, documents, plan, projects, requirements, review, standards, workflow
+from app.api import (
+    clarifications,
+    documents,
+    export,
+    plan,
+    projects,
+    requirements,
+    review,
+    standards,
+    workflow,
+)
 from app.config import get_settings
 from app.database.session import init_db
 
@@ -33,6 +43,7 @@ app.include_router(standards.router)
 app.include_router(workflow.router)
 app.include_router(plan.router)
 app.include_router(review.router)
+app.include_router(export.router)
 
 
 @app.on_event("startup")

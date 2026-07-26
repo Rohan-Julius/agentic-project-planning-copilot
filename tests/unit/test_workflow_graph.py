@@ -334,3 +334,32 @@ def test_revision_cycle_increments_count_and_still_terminates_at_final_gate(
     if not result.get("errors"):
         assert "__interrupt__" in result
         assert result["__interrupt__"][0].value["stage"] == "final_gate"
+
+
+def test_final_approve_patch_releases_the_gate_and_reaches_export(session_factory, checkpointer):
+    """Day 14: mirrors test_clarification_approve_patch_releases_the_gate but for gate 2 —
+    patching final_approved=True via update_state (not a bare Command(resume=...)) is what
+    actually releases final_gate and reaches the (now real) export node.
+    """
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-final-approve", session_factory)
+
+    seeded = _base_state(
+        requirement_ids=["REQ-1"], clarification_approved=True,
+        plan_version_id="ver_1", reviewer_decision="PASS",
+    )
+    first = graph.invoke(seeded, config=config)
+    assert "__interrupt__" in first
+    assert first["__interrupt__"][0].value["stage"] == NODE_FINAL_GATE
+
+    graph.update_state(config, {"final_approved": True})
+    resumed = graph.invoke(Command(resume="approved"), config=config)
+
+    assert "__interrupt__" not in resumed
+    assert resumed["current_stage"] == "export"
+
+    session = session_factory()
+    events = session.scalars(
+        select(WorkflowEvent).where(WorkflowEvent.workflow_run_id == "RUN-final-approve")
+    ).all()
+    assert any(e.action == "WORKFLOW_COMPLETE" for e in events)
