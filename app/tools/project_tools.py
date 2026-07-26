@@ -20,6 +20,7 @@ from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQues
 from app.schemas.planning import ProjectPlan
 from app.schemas.project import ProjectInfo
 from app.schemas.requirement import Requirement, RequirementAnalysisResult
+from app.schemas.reviewer import ReviewerReport
 from app.services import project_service
 
 
@@ -229,5 +230,56 @@ def save_planning_artifacts(
         )
         session.commit()
         return version_id
+    finally:
+        session.close()
+
+
+def get_current_plan_version_id(
+    project_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> str | None:
+    """The version_id of the current plan version, if one exists — used by the workflow
+    graph to populate ProjectWorkflowState.plan_version_id after run_planning_agent persists
+    a new version (spec §19).
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        version = session.scalar(
+            select(PlanArtifactVersion).where(
+                PlanArtifactVersion.project_id == project_id,
+                PlanArtifactVersion.is_current.is_(True),
+            )
+        )
+        return version.version_id if version else None
+    finally:
+        session.close()
+
+
+def save_reviewer_report(
+    project_id: str,
+    report: ReviewerReport,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> None:
+    """Persist the Reviewer Agent's report onto the current plan version (spec §13.12) so
+    GET /projects/{id}/review can read it back without re-running the Reviewer, and so
+    plan_revision_node (Day 13) can recover revision_instructions for a re-run.
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        version = session.scalar(
+            select(PlanArtifactVersion).where(
+                PlanArtifactVersion.project_id == project_id,
+                PlanArtifactVersion.is_current.is_(True),
+            )
+        )
+        if version is None:
+            raise ValueError(f"No plan version found for project {project_id!r}")
+        version.reviewer_decision = report.decision
+        version.reviewer_report_json = report.model_dump(mode="json")
+        session.commit()
     finally:
         session.close()

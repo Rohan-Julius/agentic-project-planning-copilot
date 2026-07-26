@@ -244,6 +244,32 @@ def test_planning_agent_epics_prompt_includes_requirement_evidence(session_facto
     assert CITATION["chunk_id"] in epics_prompt
 
 
+def test_planning_agent_summary_scope_epics_includes_revision_instructions(session_factory):
+    from app.agents.planning import run_planning_agent_summary_scope_epics
+    from app.schemas.reviewer import ReviewerIssue
+
+    instructions = [
+        ReviewerIssue(
+            artifact_id="US-007", issue_type="MISSING_ACCEPTANCE_CRITERIA",
+            description="The story does not define the failed-payment scenario.",
+            recommended_action="Add acceptance criteria for payment rejection and retry.",
+        )
+    ]
+
+    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
+        "app.agents.planning.run_agent",
+        side_effect=[_summary_scope_result(), _epics_result()],
+    ) as mock_run_agent:
+        run_planning_agent_summary_scope_epics(
+            "PRJ-PLAN", "RUN-1", session_factory=session_factory, revision_instructions=instructions,
+        )
+
+    for call in mock_run_agent.call_args_list:
+        prompt = call.kwargs["prompt"]
+        assert "US-007" in prompt
+        assert "Add acceptance criteria for payment rejection and retry." in prompt
+
+
 # --- User stories + acceptance criteria (Day 12, spec §13.6) ---
 
 def _project_info() -> ProjectInfo:

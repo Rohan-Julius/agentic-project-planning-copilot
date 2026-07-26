@@ -40,6 +40,7 @@ from app.schemas.planning import (
     UserStoryDraft,
 )
 from app.schemas.requirement import Requirement
+from app.schemas.reviewer import ReviewerIssue
 from app.tools.project_tools import (
     get_clarification_answers,
     get_project_information,
@@ -149,6 +150,25 @@ def _format_standards(standards: list[RetrievedChunk]) -> str:
     return "\n".join(f"[Standard {i}] {s.text[:300]}" for i, s in enumerate(standards[:3], 1))
 
 
+def _format_revision_instructions(instructions: "list[ReviewerIssue] | None") -> str:
+    """Spec §7.4/§7.3 "Revise-once": the Reviewer's specific, artifact-addressed findings
+    are appended to every generation prompt during a revision run so the Planning Agent
+    fixes the actual reported issues instead of regenerating blind.
+    """
+    if not instructions:
+        return ""
+    lines = [
+        "\nREVISION INSTRUCTIONS (from the Reviewer Agent's last report — address these "
+        "specifically; spec §7.4):"
+    ]
+    for issue in instructions:
+        lines.append(
+            f"  - [{issue.artifact_id}] {issue.issue_type}: {issue.description} "
+            f"→ {issue.recommended_action}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _assign_epic_ids(drafts: list[EpicDraft]) -> list[Epic]:
     """Deterministic ID minting (DESIGN.md §0.2): the LLM proposes epic content, Python
     assigns identity — IDs are stable, unique, and never LLM-hallucinated.
@@ -165,6 +185,7 @@ def run_planning_agent_summary_scope_epics(
     *,
     session_factory: "Callable[[], Session] | sessionmaker | None" = None,
     vector_service: "VectorService | None" = None,
+    revision_instructions: "list[ReviewerIssue] | None" = None,
 ) -> tuple[ProjectSummary, Scope, list[Epic]]:
     """Execute the first two calls of the Planning Agent's multi-call generation sequence
     (DESIGN.md §8.3): project summary + scope, then epics grounded in that scope.
@@ -205,6 +226,7 @@ def run_planning_agent_summary_scope_epics(
     req_block = _format_requirements(requirements)
     clarif_block = _format_answered_clarifications(clarifications)
     standards_block = _format_standards(standards)
+    revision_block = _format_revision_instructions(revision_instructions)
 
     summary_scope_prompt = f"""{_SUMMARY_SCOPE_SYSTEM_PROMPT}
 
@@ -224,7 +246,7 @@ ANSWERED CLARIFICATIONS:
 
 COMPANY STANDARDS:
 {standards_block}
-"""
+{revision_block}"""
 
     summary_scope = run_agent(
         agent_name="planning_summary_scope",
@@ -253,7 +275,7 @@ ANSWERED CLARIFICATIONS:
 
 COMPANY STANDARDS:
 {standards_block}
-"""
+{revision_block}"""
 
     epics_result = run_agent(
         agent_name="planning_epics",
@@ -346,11 +368,13 @@ def _generate_stories(
     clarifications: list[ClarificationQuestion],
     standards: list[RetrievedChunk],
     epics: list[Epic],
+    revision_instructions: "list[ReviewerIssue] | None" = None,
 ) -> list[UserStory]:
     req_block = _format_requirements(requirements)
     clarif_block = _format_answered_clarifications(clarifications)
     standards_block = _format_standards(standards)
     epics_block = _format_epics(epics)
+    revision_block = _format_revision_instructions(revision_instructions)
 
     prompt = f"""{_STORIES_SYSTEM_PROMPT}
 
@@ -369,7 +393,7 @@ ANSWERED CLARIFICATIONS:
 
 COMPANY STANDARDS:
 {standards_block}
-"""
+{revision_block}"""
     result = run_agent(
         agent_name="planning_stories",
         prompt=prompt,
@@ -466,12 +490,14 @@ def _generate_tasks_deps_raid(
     standards: list[RetrievedChunk],
     epics: list[Epic],
     stories: list[UserStory],
+    revision_instructions: "list[ReviewerIssue] | None" = None,
 ) -> tuple[list[TechnicalTask], RaidLog]:
     req_block = _format_requirements(requirements)
     clarif_block = _format_answered_clarifications(clarifications)
     standards_block = _format_standards(standards)
     epics_block = _format_epics(epics)
     stories_block = _format_stories(stories)
+    revision_block = _format_revision_instructions(revision_instructions)
 
     prompt = f"""{_TASKS_DEPS_RAID_SYSTEM_PROMPT}
 
@@ -493,7 +519,7 @@ ANSWERED CLARIFICATIONS:
 
 COMPANY STANDARDS:
 {standards_block}
-"""
+{revision_block}"""
     result = run_agent(
         agent_name="planning_tasks_deps_raid",
         prompt=prompt,
@@ -548,7 +574,10 @@ def _normalize_sprint_plan(plan: SprintPlan, known_story_ids: set[str]) -> Sprin
     )
 
 
-def _generate_sprint_plan(project_info, stories: list[UserStory]) -> SprintPlan:
+def _generate_sprint_plan(
+    project_info, stories: list[UserStory],
+    revision_instructions: "list[ReviewerIssue] | None" = None,
+) -> SprintPlan:
     stories_block = (
         "\n".join(
             f"[{s.story_id}] {s.title} (priority={s.priority}, points={s.suggested_story_points})"
@@ -556,6 +585,7 @@ def _generate_sprint_plan(project_info, stories: list[UserStory]) -> SprintPlan:
         )
         or "(no stories available)"
     )
+    revision_block = _format_revision_instructions(revision_instructions)
 
     prompt = f"""{_SPRINT_SYSTEM_PROMPT}
 
@@ -566,7 +596,7 @@ PROJECT CONTEXT:
 
 STORIES:
 {stories_block}
-"""
+{revision_block}"""
     plan = run_agent(
         agent_name="planning_sprint",
         prompt=prompt,
@@ -627,6 +657,7 @@ def run_planning_agent(
     *,
     session_factory: "Callable[[], Session] | sessionmaker | None" = None,
     vector_service: "VectorService | None" = None,
+    revision_instructions: "list[ReviewerIssue] | None" = None,
 ) -> ProjectPlan:
     """Execute the full Planning Agent generation sequence (DESIGN.md §8.3): summary+scope
     → epics → stories+AC → tasks+deps+RAID → sprint plan, then a deterministic traceability
@@ -637,9 +668,13 @@ def run_planning_agent(
     epics call above (which does its own fetching) rather than threading a shared context
     object through every helper — an acceptable duplication of cheap local reads for this
     PoC's scope, not a live LLM call.
+
+    revision_instructions (spec §7.4 "Revise-once"): when set, threaded into every
+    generation call's prompt so a revision run addresses the Reviewer's actual findings.
     """
     summary, scope, epics = run_planning_agent_summary_scope_epics(
-        project_id, workflow_run_id, session_factory=session_factory, vector_service=vector_service
+        project_id, workflow_run_id, session_factory=session_factory, vector_service=vector_service,
+        revision_instructions=revision_instructions,
     )
 
     project_info = get_project_information(project_id, session_factory=session_factory)
@@ -652,11 +687,15 @@ def run_planning_agent(
         vector_service=vector_service,
     )
 
-    stories = _generate_stories(project_info, requirements, clarifications, standards, epics)
-    technical_tasks, raid = _generate_tasks_deps_raid(
-        project_info, requirements, clarifications, standards, epics, stories
+    stories = _generate_stories(
+        project_info, requirements, clarifications, standards, epics,
+        revision_instructions=revision_instructions,
     )
-    sprint_plan = _generate_sprint_plan(project_info, stories)
+    technical_tasks, raid = _generate_tasks_deps_raid(
+        project_info, requirements, clarifications, standards, epics, stories,
+        revision_instructions=revision_instructions,
+    )
+    sprint_plan = _generate_sprint_plan(project_info, stories, revision_instructions=revision_instructions)
     traceability = _build_traceability_matrix(requirements, epics, stories)
 
     plan = ProjectPlan(

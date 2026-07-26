@@ -1,13 +1,11 @@
 """LangGraph state graph (Day 7, DESIGN.md §7.1/§7.2, spec §10/§19).
 
-Node bodies for the four specialist agents (`requirement_analyst`, `planning`, `reviewer`,
-`plan_revision`) and `export` are stubs — those agents ship on Days 9, 11-13, 13, and 14
-respectively (see PROJECT_PLAN.md). A stub records a `WorkflowEvent` and appends to
-`state["errors"]`; the router (`route_next_node`) then sends the run straight to
-`stop_error` on the very next pass, since any non-empty `errors` is an unconditional
-controlled stop. This is what makes the graph safely invokable end-to-end today, without
-faking data or looping forever waiting on functionality that doesn't exist yet (see
-docs/DAY7_UNDERSTANDING.md decision 1).
+As of Day 13, only `export` remains a stub (ships Day 14, spec §9.11/§16.8). `supervisor`,
+`requirement_analyst`, `planning`, `reviewer`, and `plan_revision` are all real nodes; a stub
+still records a `WorkflowEvent` and appends to `state["errors"]`, and the router
+(`route_next_node`) sends the run straight to `stop_error` on the very next pass, since any
+non-empty `errors` is an unconditional controlled stop (see docs/DAY7_UNDERSTANDING.md
+decision 1).
 
 `clarification_gate` and `final_gate` are real, not stubs: they only depend on state flags
 set by tools/endpoints, never on agent reasoning, so the interrupt/resume machinery itself
@@ -37,11 +35,9 @@ from app.workflow.routes import (
 )
 from app.workflow.state import ProjectWorkflowState
 
-# (display agent name, day it ships) — PROJECT_PLAN.md.
+# (display agent name, day it ships) — PROJECT_PLAN.md. Only export remains a stub after
+# Day 13; planning/reviewer/plan_revision are real nodes below.
 _NOT_IMPLEMENTED = {
-    NODE_PLANNING: ("Planning", 11),
-    NODE_REVIEWER: ("Reviewer", 13),
-    NODE_PLAN_REVISION: ("Planning", 13),
     NODE_EXPORT: ("Export", 14),
 }
 
@@ -186,6 +182,170 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
         }
 
 
+def planning_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
+    """Planning Agent node (Day 13 wiring — agent logic shipped Days 11-12, spec §7.3).
+
+    Runs the full summary->scope->epics->stories->tasks/deps/RAID->sprint sequence and
+    persists it as a new plan version; sets state.plan_version_id to that version so the
+    router (routes.py §7.3 table) advances to the reviewer next.
+    """
+    from app.agents.planning import run_planning_agent
+    from app.agents.runner import AgentError
+    from app.tools.project_tools import get_current_plan_version_id
+
+    try:
+        _log(
+            state, config, agent="Planning", stage=NODE_PLANNING,
+            action="GENERATE_PLAN", status="IN_PROGRESS",
+        )
+
+        run_planning_agent(
+            project_id=state["project_id"],
+            workflow_run_id=config["configurable"]["thread_id"],
+            session_factory=config["configurable"]["session_factory"],
+            vector_service=config["configurable"].get("vector_service"),
+        )
+        version_id = get_current_plan_version_id(
+            state["project_id"], session_factory=config["configurable"]["session_factory"],
+        )
+
+        _log(
+            state, config, agent="Planning", stage=NODE_PLANNING,
+            action="GENERATE_PLAN", status="SUCCESS",
+        )
+
+        return {
+            "current_stage": NODE_PLANNING,
+            "plan_version_id": version_id,
+            # A fresh plan invalidates any prior reviewer verdict from an earlier version.
+            "reviewer_decision": None,
+        }
+
+    except (AgentError, ValueError) as e:
+        error_msg = str(e)
+        _log(
+            state, config, agent="Planning", stage=NODE_PLANNING,
+            action="ERROR", status="ERROR", error=error_msg,
+        )
+        return {"errors": [*state["errors"], error_msg]}
+
+
+def reviewer_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
+    """Reviewer Agent node (Day 13, spec §7.4). Independent QA of the current plan version;
+    never rewrites the plan, only judges it (§34 Q6 — the planner never grades its own work).
+    """
+    from app.agents.reviewer import run_reviewer_agent
+    from app.agents.runner import AgentError
+    from app.tools.project_tools import save_reviewer_report
+
+    try:
+        _log(
+            state, config, agent="Reviewer", stage=NODE_REVIEWER,
+            action="REVIEW_PLAN", status="IN_PROGRESS",
+        )
+
+        report = run_reviewer_agent(
+            project_id=state["project_id"],
+            workflow_run_id=config["configurable"]["thread_id"],
+            session_factory=config["configurable"]["session_factory"],
+            vector_service=config["configurable"].get("vector_service"),
+        )
+        save_reviewer_report(
+            state["project_id"], report,
+            session_factory=config["configurable"]["session_factory"],
+        )
+
+        _log(
+            state, config, agent="Reviewer", stage=NODE_REVIEWER,
+            action=f"DECISION_{report.decision}", status="SUCCESS",
+            result_count=len(report.revision_instructions),
+        )
+
+        return {
+            "current_stage": NODE_REVIEWER,
+            "reviewer_decision": report.decision,
+        }
+
+    except (AgentError, ValueError) as e:
+        error_msg = str(e)
+        _log(
+            state, config, agent="Reviewer", stage=NODE_REVIEWER,
+            action="ERROR", status="ERROR", error=error_msg,
+        )
+        return {"errors": [*state["errors"], error_msg]}
+
+
+def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
+    """Planning Agent revision node (Day 13, spec §7.4, §20.1). Re-runs the full planning
+    sequence once, with the current Reviewer report's revision_instructions threaded into
+    every generation prompt as additional context. The router (routes.py) is the loop-limit
+    authority (`revision_count < 1`) — this node just does the work and increments the
+    counter.
+    """
+    from sqlalchemy import select
+
+    from app.agents.planning import run_planning_agent
+    from app.agents.runner import AgentError
+    from app.models.plan_artifact import PlanArtifactVersion
+    from app.schemas.reviewer import ReviewerReport
+    from app.tools.project_tools import get_current_plan_version_id
+
+    session_factory = config["configurable"]["session_factory"]
+    session = session_factory()
+    try:
+        version = session.scalar(
+            select(PlanArtifactVersion).where(
+                PlanArtifactVersion.project_id == state["project_id"],
+                PlanArtifactVersion.is_current.is_(True),
+            )
+        )
+        revision_instructions = (
+            ReviewerReport.model_validate(version.reviewer_report_json).revision_instructions
+            if version and version.reviewer_report_json
+            else []
+        )
+    finally:
+        session.close()
+
+    try:
+        _log(
+            state, config, agent="Planning", stage=NODE_PLAN_REVISION,
+            action="REVISE_PLAN", status="IN_PROGRESS",
+        )
+
+        run_planning_agent(
+            project_id=state["project_id"],
+            workflow_run_id=config["configurable"]["thread_id"],
+            session_factory=session_factory,
+            vector_service=config["configurable"].get("vector_service"),
+            revision_instructions=revision_instructions,
+        )
+        version_id = get_current_plan_version_id(state["project_id"], session_factory=session_factory)
+
+        _log(
+            state, config, agent="Planning", stage=NODE_PLAN_REVISION,
+            action="REVISE_PLAN", status="SUCCESS",
+        )
+
+        return {
+            "current_stage": NODE_PLAN_REVISION,
+            "plan_version_id": version_id,
+            "reviewer_decision": None,
+            "revision_count": state["revision_count"] + 1,
+        }
+
+    except (AgentError, ValueError) as e:
+        error_msg = str(e)
+        _log(
+            state, config, agent="Planning", stage=NODE_PLAN_REVISION,
+            action="ERROR", status="ERROR", error=error_msg,
+        )
+        return {
+            "errors": [*state["errors"], error_msg],
+            "revision_count": state["revision_count"] + 1,
+        }
+
+
 def _stub_node_factory(node_name: str):
     agent_name, day = _NOT_IMPLEMENTED[node_name]
 
@@ -228,8 +388,10 @@ def build_graph() -> StateGraph:
     graph = StateGraph(ProjectWorkflowState)
     graph.add_node("supervisor", supervisor_node)
     graph.add_node(NODE_REQUIREMENT_ANALYST, requirement_analyst_node)
-    for name in (NODE_PLANNING, NODE_REVIEWER, NODE_PLAN_REVISION, NODE_EXPORT):
-        graph.add_node(name, _stub_node_factory(name))
+    graph.add_node(NODE_PLANNING, planning_node)
+    graph.add_node(NODE_REVIEWER, reviewer_node)
+    graph.add_node(NODE_PLAN_REVISION, plan_revision_node)
+    graph.add_node(NODE_EXPORT, _stub_node_factory(NODE_EXPORT))
     graph.add_node(NODE_CLARIFICATION_GATE, clarification_gate_node)
     graph.add_node(NODE_FINAL_GATE, final_gate_node)
     graph.add_node(NODE_STOP_ERROR, stop_error_node)

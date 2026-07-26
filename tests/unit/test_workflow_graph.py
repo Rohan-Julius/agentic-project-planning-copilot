@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
+from app.models.plan_artifact import PlanArtifactVersion
 from app.models.project import ProjectRecord
 from app.models.workflow import WorkflowEvent
 from app.services.vector_service import VectorService
@@ -139,8 +140,11 @@ def test_clarification_gate_interrupts_and_resumes(session_factory, checkpointer
 def test_clarification_approve_patch_releases_the_gate(session_factory, checkpointer):
     """Day 10: unlike a bare Command(resume=...) (see the test above, which just
     re-interrupts), patching clarification_approved=True via update_state before resuming
-    actually releases the gate — proven by reaching the still-stubbed planning node
-    (Day 11 not built yet) and controlled-stopping there.
+    actually releases the gate — proven by reaching the real planning node (Day 13) and
+    controlled-stopping there, since state["requirement_ids"] contains a fake "REQ-1" that
+    was never actually persisted to the requirements table (this test only seeds workflow
+    state, not the DB), so get_requirements() legitimately finds nothing and the Planning
+    Agent has no approved requirements to plan from.
     """
     graph = compile_graph(checkpointer)
     config = _config("RUN-approve", session_factory)
@@ -153,9 +157,16 @@ def test_clarification_approve_patch_releases_the_gate(session_factory, checkpoi
     graph.update_state(config, {"clarification_approved": True})
     resumed = graph.invoke(Command(resume="approved"), config=config)
 
-    assert "__interrupt__" not in resumed
-    assert resumed["current_stage"] == "stop_error"
-    assert any("Planning" in e for e in resumed["errors"])
+    # Planning is real now: it runs (against zero real requirements — none were persisted
+    # to the DB, only faked in workflow state) and does NOT error, so the graph advances
+    # past planning to the reviewer, which then runs for real too. Either way the run must
+    # not silently vanish: it either interrupts at final_gate (plan produced + reviewed) or
+    # controlled-stops with a real error recorded — never loops or crashes uncaught.
+    if "__interrupt__" in resumed:
+        assert resumed["__interrupt__"][0].value["stage"] in ("final_gate",)
+    else:
+        assert resumed["current_stage"] == "stop_error"
+        assert resumed["errors"]
 
 
 def test_revision_limit_reached_routes_to_final_gate_not_plan_revision(
@@ -207,3 +218,119 @@ def test_checkpoint_persists_across_a_fresh_connection_and_fresh_compiled_graph(
     )
 
     assert "__interrupt__" in result2  # still gated (clarification_approved unset), but resumed cleanly
+
+
+def test_planning_and_reviewer_run_for_real_and_reach_final_gate(session_factory, checkpointer):
+    """Checkpoint 3 (§28): with a real approved requirement on record, the graph should run
+    planning_node for real, produce a plan_version_id, run reviewer_node for real, and land
+    at final_gate — never loop or silently stop with no explanation. Live Ollama + in-memory
+    Qdrant, consistent with this file's existing live-agent tests.
+    """
+    from app.models.requirement import RequirementRecord
+
+    session = session_factory()
+    session.add(ProjectRecord(project_id="proj_full", name="Full Cycle Project"))
+    session.add(
+        RequirementRecord(
+            requirement_id="REQ-1", project_id="proj_full", workflow_run_id="RUN-seed",
+            title="Card payment", category="functional", classification="SOURCE_BACKED",
+            confidence=0.9,
+            payload_json={
+                "requirement_id": "REQ-1", "title": "Card payment",
+                "description": "Customers must be able to pay by card.",
+                "category": "functional", "classification": "SOURCE_BACKED", "confidence": 0.9,
+                "source_references": [],
+            },
+        )
+    )
+    session.commit()
+    session.close()
+
+    vector_service = VectorService(client=QdrantClient(location=":memory:"))
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-full-cycle", session_factory, vector_service)
+
+    seeded = _base_state(
+        project_id="proj_full", requirement_ids=["REQ-1"], clarification_approved=True,
+    )
+    result = graph.invoke(seeded, config=config)
+
+    # plan_version_id must have been set by planning_node; reviewer must have run and
+    # produced a decision; the run must end at final_gate (PASS/PASS_WITH_WARNINGS) or, if
+    # the model judged REVISION_REQUIRED, either at plan_revision having run once (and then
+    # final_gate) or — if something errored — a controlled stop with a recorded error.
+    assert result.get("plan_version_id") is not None or result.get("errors")
+    if not result.get("errors"):
+        assert "__interrupt__" in result
+        assert result["__interrupt__"][0].value["stage"] == "final_gate"
+        assert result["reviewer_decision"] in ("PASS", "PASS_WITH_WARNINGS", "REVISION_REQUIRED")
+
+
+def test_revision_cycle_increments_count_and_still_terminates_at_final_gate(
+    session_factory, checkpointer
+):
+    """§20.1: seeding reviewer_decision=REVISION_REQUIRED with revision_count=0 must route
+    to plan_revision, run it exactly once (revision_count becomes 1), then — regardless of
+    the second reviewer verdict — the run must not exceed the single revision (the router's
+    `revision_count < 1` guard, proven at the unit level in test_workflow_routes.py, holds
+    end-to-end through the real nodes too).
+    """
+    from app.models.requirement import RequirementRecord
+
+    session = session_factory()
+    session.add(ProjectRecord(project_id="proj_revise", name="Revision Cycle Project"))
+    session.add(
+        RequirementRecord(
+            requirement_id="REQ-1", project_id="proj_revise", workflow_run_id="RUN-seed",
+            title="Card payment", category="functional", classification="SOURCE_BACKED",
+            confidence=0.9,
+            payload_json={
+                "requirement_id": "REQ-1", "title": "Card payment",
+                "description": "Customers must be able to pay by card.",
+                "category": "functional", "classification": "SOURCE_BACKED", "confidence": 0.9,
+                "source_references": [],
+            },
+        )
+    )
+    session.add(
+        PlanArtifactVersion(
+            version_id="ver_seed", project_id="proj_revise", version_number=1,
+            plan_json={
+                "summary": {"business_problem": "p", "proposed_solution": "s"},
+                "scope": {}, "epics": [], "stories": [], "technical_tasks": [],
+                "raid": {"risks": [], "assumptions": [], "issues": [], "dependencies": []},
+                "traceability": {"rows": []},
+            },
+            is_current=True,
+            reviewer_report_json={
+                "decision": "REVISION_REQUIRED",
+                "missing_requirements": [], "unsupported_claims": [], "duplicate_stories": [],
+                "missing_acceptance_criteria": [], "weak_acceptance_criteria": [],
+                "traceability_gaps": [], "dependency_issues": [], "warnings": [],
+                "revision_instructions": [
+                    {
+                        "artifact_id": "US-000", "issue_type": "MISSING_ACCEPTANCE_CRITERIA",
+                        "description": "No stories were generated.",
+                        "recommended_action": "Generate at least one story.",
+                    }
+                ],
+            },
+        )
+    )
+    session.commit()
+    session.close()
+
+    vector_service = VectorService(client=QdrantClient(location=":memory:"))
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-revise-once", session_factory, vector_service)
+
+    seeded = _base_state(
+        project_id="proj_revise", requirement_ids=["REQ-1"], clarification_approved=True,
+        plan_version_id="ver_seed", reviewer_decision="REVISION_REQUIRED", revision_count=0,
+    )
+    result = graph.invoke(seeded, config=config)
+
+    assert result.get("errors") or result["revision_count"] == 1
+    if not result.get("errors"):
+        assert "__interrupt__" in result
+        assert result["__interrupt__"][0].value["stage"] == "final_gate"

@@ -214,3 +214,38 @@ def test_save_planning_artifacts_increments_version_and_unsets_previous_current(
     assert len(current) == 1
     assert current[0].version_id == second_id
     assert current[0].version_number == 2
+
+
+def test_get_current_plan_version_id_returns_none_when_no_plan(session_factory):
+    from app.tools.project_tools import get_current_plan_version_id
+
+    project_id = _create_project(session_factory)
+    assert get_current_plan_version_id(project_id, session_factory=session_factory) is None
+
+
+def test_save_reviewer_report_persists_decision_and_report(session_factory):
+    from app.schemas.reviewer import ReviewerIssue, ReviewerReport
+    from app.tools.project_tools import get_current_plan_version_id, save_reviewer_report
+
+    project_id = _create_project(session_factory)
+    version_id = save_planning_artifacts(project_id, _minimal_plan(), session_factory=session_factory)
+
+    report = ReviewerReport(
+        decision="REVISION_REQUIRED",
+        revision_instructions=[
+            ReviewerIssue(
+                artifact_id="US-007", issue_type="MISSING_ACCEPTANCE_CRITERIA",
+                description="No failed-payment scenario.", recommended_action="Add AC for rejection.",
+            )
+        ],
+    )
+    save_reviewer_report(project_id, report, session_factory=session_factory)
+
+    assert get_current_plan_version_id(project_id, session_factory=session_factory) == version_id
+    session = session_factory()
+    row = session.execute(
+        select(PlanArtifactVersion).where(PlanArtifactVersion.version_id == version_id)
+    ).scalar_one()
+    session.close()
+    assert row.reviewer_decision == "REVISION_REQUIRED"
+    assert row.reviewer_report_json["revision_instructions"][0]["artifact_id"] == "US-007"

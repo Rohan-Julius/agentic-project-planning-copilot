@@ -55,8 +55,10 @@ def client(tmp_path):
     with TestClient(app) as test_client:
         # Exposed so integration tests can verify retrieval (via the tools layer, which
         # isn't itself behind FastAPI DI) against the exact same in-memory Qdrant the API
-        # endpoints just wrote to/deleted from.
+        # endpoints just wrote to/deleted from. session_factory is exposed the same way so
+        # tests can seed rows (e.g. a PlanArtifactVersion) that have no POST endpoint.
         test_client.vector_service = test_vector_service
         test_client.checkpointer = test_checkpointer
+        test_client.session_factory = session_factory
         yield test_client
     app.dependency_overrides.clear()

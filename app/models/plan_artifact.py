@@ -29,6 +29,7 @@ class PlanArtifactVersion(Base):
     model: Mapped[str] = mapped_column(String, default="")
     prompt_version: Mapped[str] = mapped_column(String, default="")
     reviewer_decision: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewer_report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, default=True)
     generated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, default=lambda: dt.datetime.now(dt.timezone.utc)
