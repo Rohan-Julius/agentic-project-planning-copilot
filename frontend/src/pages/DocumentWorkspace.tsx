@@ -238,8 +238,8 @@ export default function DocumentWorkspace() {
                 {starting ? 'Running…' : 'Run requirement analysis'}
               </button>
               {workflowStatus && (
-                <Link className="button" to={`/projects/${projectId}/clarifications`}>
-                  Review clarifications
+                <Link className="button" to={`/projects/${projectId}/workflow`}>
+                  View agent execution →
                 </Link>
               )}
             </div>

@@ -1,5 +1,5 @@
-const API_BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
+export const apiBaseUrl: string =
+  (import.meta.env.VITE_apiBaseUrl as string | undefined) ?? 'http://localhost:8000'
 
 export class ApiError extends Error {
   status: number
@@ -22,18 +22,18 @@ async function handle<T>(response: Response): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) => fetch(`${API_BASE_URL}${path}`).then((r) => handle<T>(r)),
+  get: <T>(path: string) => fetch(`${apiBaseUrl}${path}`).then((r) => handle<T>(r)),
 
   post: <T>(path: string, data: unknown) =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${apiBaseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }).then((r) => handle<T>(r)),
 
   postForm: <T>(path: string, form: FormData) =>
-    fetch(`${API_BASE_URL}${path}`, { method: 'POST', body: form }).then((r) => handle<T>(r)),
+    fetch(`${apiBaseUrl}${path}`, { method: 'POST', body: form }).then((r) => handle<T>(r)),
 
   delete: (path: string) =>
-    fetch(`${API_BASE_URL}${path}`, { method: 'DELETE' }).then((r) => handle<void>(r)),
+    fetch(`${apiBaseUrl}${path}`, { method: 'DELETE' }).then((r) => handle<void>(r)),
 }

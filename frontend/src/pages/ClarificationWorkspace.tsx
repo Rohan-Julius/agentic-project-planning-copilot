@@ -166,7 +166,12 @@ export default function ClarificationWorkspace() {
               {approving ? 'Approving…' : 'Approve clarifications'}
             </button>
           </div>
-          {approveStatus && <p className="muted">Workflow status after approval: {approveStatus}</p>}
+          {approveStatus && (
+            <p className="muted">
+              Workflow status after approval: {approveStatus}.{' '}
+              <Link to={`/projects/${projectId}/workflow`}>View execution →</Link>
+            </p>
+          )}
         </form>
       )}
     </div>

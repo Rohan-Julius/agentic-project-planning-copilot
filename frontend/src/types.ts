@@ -59,3 +59,185 @@ export interface WorkflowRun {
   started_at: string
   ended_at: string | null
 }
+
+export type Classification =
+  | 'SOURCE_BACKED'
+  | 'CLARIFICATION_BACKED'
+  | 'ASSUMPTION'
+  | 'AI_RECOMMENDATION'
+
+export interface ProjectSummary {
+  business_problem: string
+  proposed_solution: string
+  objectives: string[]
+  target_users: string[]
+  expected_benefits: string[]
+  success_criteria: string[]
+  major_constraints: string[]
+}
+
+export interface Scope {
+  in_scope: string[]
+  out_of_scope: string[]
+  future_scope: string[]
+  assumptions: string[]
+  constraints: string[]
+}
+
+export interface AcceptanceCriterion {
+  criterion_id: string
+  given: string
+  when: string
+  then: string
+}
+
+export interface Epic {
+  epic_id: string
+  title: string
+  objective: string
+  business_value: string
+  description: string
+  priority: 'Highest' | 'High' | 'Medium' | 'Low'
+  dependencies: string[]
+  risks: string[]
+  classification: Classification
+  source_references: SourceReference[]
+}
+
+export interface UserStory {
+  story_id: string
+  epic_id: string
+  title: string
+  persona: string
+  story_statement: string
+  business_value: string
+  priority: 'Highest' | 'High' | 'Medium' | 'Low'
+  acceptance_criteria: AcceptanceCriterion[]
+  dependencies: string[]
+  assumptions: string[]
+  suggested_story_points: number | null
+  confidence: number
+  classification: Classification
+  source_references: SourceReference[]
+}
+
+export interface TechnicalTask {
+  task_id: string
+  story_id: string | null
+  category: string
+  description: string
+  is_recommendation: boolean
+}
+
+export interface Dependency {
+  dependency_id: string
+  blocking_item_id: string
+  blocked_item_id: string
+  dependency_type: 'BLOCKS' | 'REQUIRES' | 'RELATES_TO'
+  description: string
+  suggested_resolution: string
+}
+
+export interface Risk {
+  risk_id: string
+  description: string
+  probability: 'Low' | 'Medium' | 'High'
+  impact: 'Low' | 'Medium' | 'High'
+  severity: 'Low' | 'Medium' | 'High'
+  mitigation: string
+  contingency: string
+  classification: Classification
+  source_references: SourceReference[]
+}
+
+export interface Assumption {
+  assumption_id: string
+  description: string
+  classification: Classification
+  source_references: SourceReference[]
+}
+
+export interface Issue {
+  issue_id: string
+  description: string
+  status: string
+  source_references: SourceReference[]
+}
+
+export interface RaidLog {
+  risks: Risk[]
+  assumptions: Assumption[]
+  issues: Issue[]
+  dependencies: Dependency[]
+}
+
+export interface Sprint {
+  sprint_number: number
+  sprint_goal: string
+  story_ids: string[]
+  story_point_total: number
+}
+
+export interface SprintPlan {
+  is_ai_generated_draft: boolean
+  suggested_sprint_count: number
+  sprints: Sprint[]
+  dependency_considerations: string[]
+  unscheduled_story_ids: string[]
+}
+
+export interface TraceabilityRow {
+  requirement_id: string
+  source_references: SourceReference[]
+  epic_id: string | null
+  story_id: string | null
+  acceptance_criterion_ids: string[]
+}
+
+export interface TraceabilityMatrix {
+  rows: TraceabilityRow[]
+}
+
+export interface ProjectPlan {
+  summary: ProjectSummary
+  scope: Scope
+  epics: Epic[]
+  stories: UserStory[]
+  technical_tasks: TechnicalTask[]
+  raid: RaidLog
+  sprint_plan: SprintPlan | null
+  traceability: TraceabilityMatrix
+}
+
+export interface ReviewerIssue {
+  artifact_id: string
+  issue_type: string
+  description: string
+  recommended_action: string
+}
+
+export interface ReviewerReport {
+  decision: 'PASS' | 'PASS_WITH_WARNINGS' | 'REVISION_REQUIRED'
+  missing_requirements: string[]
+  unsupported_claims: ReviewerIssue[]
+  duplicate_stories: ReviewerIssue[]
+  missing_acceptance_criteria: ReviewerIssue[]
+  weak_acceptance_criteria: ReviewerIssue[]
+  traceability_gaps: ReviewerIssue[]
+  dependency_issues: ReviewerIssue[]
+  warnings: string[]
+  revision_instructions: ReviewerIssue[]
+}
+
+export interface WorkflowEvent {
+  workflow_run_id: string
+  timestamp: string
+  agent: string
+  stage: string
+  action: string
+  tool: string | null
+  status: string
+  result_count: number | null
+  duration_ms: number | null
+  error: string | null
+}
