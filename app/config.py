@@ -34,7 +34,16 @@ class Settings(BaseSettings):
     chunk_overlap_ratio: float = Field(default=0.15, alias="CHUNK_OVERLAP_RATIO")
 
     # --- Vector store (Qdrant) ---
-    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
+    qdrant_url: str | None = Field(
+        default=None,
+        alias="QDRANT_URL",
+        description=(
+            "Qdrant server URL. Leave unset (default) to use an embedded, file-backed "
+            "Qdrant store under DATA_DIR/qdrant_local — no server process or Docker "
+            "required. Set to a URL (e.g. http://localhost:6333) to use a running "
+            "Qdrant server instead."
+        ),
+    )
     qdrant_project_collection: str = Field(
         default="project_knowledge", alias="QDRANT_PROJECT_COLLECTION"
     )
@@ -68,6 +77,13 @@ class Settings(BaseSettings):
         must never overwrite a source document.
         """
         return self.data_dir / "exports"
+
+    @property
+    def qdrant_local_path(self) -> Path:
+        """Embedded Qdrant storage directory, used when QDRANT_URL is unset (no Docker
+        needed). qdrant-client locks this directory to one process at a time.
+        """
+        return self.data_dir / "qdrant_local"
 
     @property
     def checkpoint_db_path(self) -> Path:

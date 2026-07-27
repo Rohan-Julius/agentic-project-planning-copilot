@@ -1,5 +1,7 @@
-# Demo / packaging topology (spec §15, §26). In dev these run natively and the
-# backend connects via OLLAMA_HOST / QDRANT_URL. Fleshed out on Day 24.
+# Demo / packaging topology (spec §15, §26). Not required for local dev: the backend
+# defaults to an embedded, file-backed Qdrant (no QDRANT_URL set) and a natively-run
+# Ollama. This compose file is the opt-in server-based topology used for the demo/
+# production package. Fleshed out on Day 24.
 services:
   ollama:
     image: ollama/ollama:latest

@@ -107,3 +107,23 @@ def test_upsert_is_idempotent_for_the_same_chunk_id():
     results = service.search("project_knowledge", _vector(1.0), query_filter=None, top_k=10)
 
     assert len(results) == 1
+
+
+def test_falls_back_to_embedded_local_qdrant_when_url_is_unset(tmp_path, monkeypatch):
+    from app.config import Settings, get_settings
+
+    local_settings = Settings(_env_file=None, DATA_DIR=str(tmp_path))
+    assert local_settings.qdrant_url is None
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.services.vector_service.get_settings", lambda: local_settings)
+
+    service = VectorService()
+    chunk = _chunk("doc_1-CH-001", project_id="proj_a")
+    service.upsert_chunks("project_knowledge", [chunk], [_vector(1.0)])
+    results = service.search("project_knowledge", _vector(1.0), query_filter=None, top_k=5)
+
+    assert len(results) == 1
+    assert results[0].payload["chunk_id"] == "doc_1-CH-001"
+    assert (tmp_path / "qdrant_local").exists()
+
+    get_settings.cache_clear()

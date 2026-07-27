@@ -29,8 +29,11 @@ Under active development on a 25-day plan — see the task board:
 
 ## Local development (early)
 
-Prerequisites: Python 3.12, [Ollama](https://ollama.com) running `qwen3:4b-instruct`, and
-a local Qdrant (or Docker). Config is env-var driven — copy `.env.example` to `.env`.
+Prerequisites: Python 3.12 and [Ollama](https://ollama.com) running `qwen3:4b-instruct`.
+No Qdrant install or Docker is required for local dev — the app defaults to an embedded,
+file-backed Qdrant store under `DATA_DIR/qdrant_local`. Config is env-var driven — copy
+`.env.example` to `.env`. To use a Qdrant server instead (e.g. the Docker demo topology),
+set `QDRANT_URL` in `.env`.
 
 ```bash
 cp .env.example .env

@@ -38,7 +38,12 @@ def _point_id(chunk_id: str) -> str:
 class VectorService:
     def __init__(self, client: QdrantClient | None = None) -> None:
         settings = get_settings()
-        self.client = client or QdrantClient(url=settings.qdrant_url)
+        if client is not None:
+            self.client = client
+        elif settings.qdrant_url:
+            self.client = QdrantClient(url=settings.qdrant_url)
+        else:
+            self.client = QdrantClient(path=str(settings.qdrant_local_path))
         for collection in (settings.qdrant_project_collection, settings.qdrant_org_collection):
             self._ensure_collection(collection)
 
