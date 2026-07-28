@@ -36,6 +36,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: full live-Ollama end-to-end pipeline tests (minutes-to-hours); run explicitly with `pytest -m slow`",
+]
 
 [tool.ruff]
 line-length = 100
