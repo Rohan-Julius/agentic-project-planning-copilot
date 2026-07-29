@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { ClarificationQuestion, Project } from '../types'
 
@@ -12,13 +12,13 @@ const STATUS_OPTIONS: ClarificationQuestion['status'][] = [
 
 export default function ClarificationWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [questions, setQuestions] = useState<ClarificationQuestion[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [approving, setApproving] = useState(false)
-  const [approveStatus, setApproveStatus] = useState<string | null>(null)
 
   function loadQuestions(id: string) {
     return api.get<ClarificationQuestion[]>(`/projects/${id}/clarifications`).then(setQuestions)
@@ -62,21 +62,18 @@ export default function ClarificationWorkspace() {
     }
   }
 
-  async function handleApprove() {
+  function handleApprove() {
     if (!projectId) return
     setError(null)
     setApproving(true)
-    try {
-      const run = await api.post<{ status: string }>(
-        `/projects/${projectId}/clarifications/approve`,
-        {},
-      )
-      setApproveStatus(run.status)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message)
-    } finally {
-      setApproving(false)
-    }
+    // Approving resumes the graph synchronously on the backend straight into Planning
+    // (several sequential live LLM calls) — it can take minutes, so navigate to the Agent
+    // Execution screen immediately rather than awaiting this response, the same reason
+    // DocumentWorkspace's "Run requirement analysis" no longer awaits /workflow/start.
+    api.post(`/projects/${projectId}/clarifications/approve`, {}).catch((err) => {
+      console.error('clarifications/approve request failed', err)
+    })
+    navigate(`/projects/${projectId}/workflow`)
   }
 
   return (
@@ -96,12 +93,15 @@ export default function ClarificationWorkspace() {
       {loading && <p>Loading…</p>}
       {error && <p className="error">{error}</p>}
 
-      {!loading && !error && questions.length === 0 && (
-        <p>No clarification questions yet. Run requirement analysis from the document workspace first.</p>
-      )}
-
-      {!loading && questions.length > 0 && (
+      {!loading && !error && (
         <form className="form" onSubmit={handleSaveAnswers}>
+          {questions.length === 0 && (
+            <p className="muted">
+              No clarification questions were raised — the requirement analysis found nothing
+              ambiguous. Planning still waits for your explicit approval before it begins (§11);
+              approve below to continue.
+            </p>
+          )}
           <ul className="clarification-list">
             {questions.map((q) => (
               <li key={q.question_id} className="panel clarification-row">
@@ -159,19 +159,15 @@ export default function ClarificationWorkspace() {
           </ul>
 
           <div className="form-actions">
-            <button className="button" type="submit" disabled={saving}>
-              {saving ? 'Saving…' : 'Save answers'}
-            </button>
+            {questions.length > 0 && (
+              <button className="button" type="submit" disabled={saving}>
+                {saving ? 'Saving…' : 'Save answers'}
+              </button>
+            )}
             <button className="button" type="button" disabled={approving} onClick={handleApprove}>
               {approving ? 'Approving…' : 'Approve clarifications'}
             </button>
           </div>
-          {approveStatus && (
-            <p className="muted">
-              Workflow status after approval: {approveStatus}.{' '}
-              <Link to={`/projects/${projectId}/workflow`}>View execution →</Link>
-            </p>
-          )}
         </form>
       )}
     </div>

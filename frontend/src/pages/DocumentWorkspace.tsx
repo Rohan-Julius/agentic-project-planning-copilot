@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Project, ProjectDocument, WorkflowRun } from '../types'
+import type { IndexResult, Project, ProjectDocument, WorkflowRun } from '../types'
+
+const ACTIVE_RUN_STATUSES = ['RUNNING', 'WAITING_FOR_HUMAN_INPUT']
 
 export default function DocumentWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -20,7 +23,11 @@ export default function DocumentWorkspace() {
   const [savingText, setSavingText] = useState(false)
 
   const [starting, setStarting] = useState(false)
-  const [workflowStatus, setWorkflowStatus] = useState<string | null>(null)
+  const [activeRun, setActiveRun] = useState<WorkflowRun | null>(null)
+
+  const [indexing, setIndexing] = useState(false)
+  const [indexResult, setIndexResult] = useState<IndexResult | null>(null)
+  const [hasIndexed, setHasIndexed] = useState(false)
 
   function loadDocuments(id: string) {
     return api.get<ProjectDocument[]>(`/projects/${id}/documents`).then(setDocuments)
@@ -33,6 +40,14 @@ export default function DocumentWorkspace() {
       .then(([p]) => setProject(p))
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
+    // A run may already be active from a previous visit (e.g. the user navigated away and
+    // back) — only one workflow run may drive a project at a time (app/api/workflow.py
+    // rejects a second start with 409), so the button must reflect that on load, not just
+    // after this screen's own start click.
+    api
+      .get<WorkflowRun>(`/projects/${projectId}/workflow/status`)
+      .then((run) => setActiveRun(ACTIVE_RUN_STATUSES.includes(run.status) ? run : null))
+      .catch(() => setActiveRun(null))
   }, [projectId])
 
   async function handleUpload(event: React.FormEvent) {
@@ -90,18 +105,39 @@ export default function DocumentWorkspace() {
     }
   }
 
-  async function handleStartWorkflow() {
+  async function handleIndex() {
     if (!projectId) return
     setError(null)
-    setStarting(true)
+    setIndexing(true)
     try {
-      const run = await api.post<WorkflowRun>(`/projects/${projectId}/workflow/start`, {})
-      setWorkflowStatus(run.status)
+      const result = await api.post<IndexResult>(`/projects/${projectId}/index`, {})
+      setIndexResult(result)
+      // Indexing is idempotent server-side: a repeat call on already-indexed documents
+      // correctly returns chunk_count 0 (nothing new to do), not a failure — so "no
+      // per-document errors" is the right success signal here, not chunk_count itself.
+      if (Object.keys(result.errors).length === 0) setHasIndexed(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
-      setStarting(false)
+      setIndexing(false)
     }
+  }
+
+  function handleStartWorkflow() {
+    if (!projectId) return
+    setError(null)
+    setStarting(true)
+    // POST /workflow/start runs the agent graph synchronously on the backend and can take
+    // a long time (a single live LLM call alone can take minutes) — it doesn't return until
+    // the graph hits a human gate, completes, or errors. The WorkflowRun row is created as
+    // the very first thing the backend does, before any of that slow work, so navigating to
+    // the Agent Execution screen immediately (rather than awaiting this response) lets it
+    // start polling /workflow/status and /workflow/events right away instead of leaving the
+    // user staring at a static "Running…" button with no visibility for minutes at a time.
+    api.post(`/projects/${projectId}/workflow/start`, {}).catch((err) => {
+      console.error('workflow/start request failed', err)
+    })
+    navigate(`/projects/${projectId}/workflow`)
   }
 
   return (
@@ -223,9 +259,39 @@ export default function DocumentWorkspace() {
           </section>
 
           <section className="panel">
+            <h2>Index documents</h2>
+            <p className="muted">
+              Documents must be indexed (chunked, embedded, and stored for retrieval) before
+              requirement analysis can find anything in them. Re-run this after uploading new
+              documents.
+            </p>
+            <div className="form-actions">
+              <button
+                className="button"
+                type="button"
+                onClick={handleIndex}
+                disabled={indexing || documents.length === 0}
+              >
+                {indexing ? 'Indexing…' : 'Index documents'}
+              </button>
+            </div>
+            {documents.length === 0 && (
+              <p className="muted">Upload at least one document first.</p>
+            )}
+            {indexResult && (
+              <p className="muted">
+                Indexed {indexResult.indexed_document_ids.length} document(s),{' '}
+                {indexResult.chunk_count} chunk(s).
+                {Object.keys(indexResult.errors).length > 0 &&
+                  ` Errors: ${Object.values(indexResult.errors).join('; ')}`}
+              </p>
+            )}
+          </section>
+
+          <section className="panel">
             <h2>Requirement analysis</h2>
             <p className="muted">
-              Once your documents are uploaded, run requirement analysis to extract
+              Once your documents are indexed, run requirement analysis to extract
               requirements and generate clarification questions.
             </p>
             <div className="form-actions">
@@ -233,20 +299,25 @@ export default function DocumentWorkspace() {
                 className="button"
                 type="button"
                 onClick={handleStartWorkflow}
-                disabled={starting || documents.length === 0}
+                disabled={starting || !hasIndexed || !!activeRun}
               >
                 {starting ? 'Running…' : 'Run requirement analysis'}
               </button>
-              {workflowStatus && (
+              {activeRun && (
                 <Link className="button" to={`/projects/${projectId}/workflow`}>
                   View agent execution →
                 </Link>
               )}
             </div>
-            {documents.length === 0 && (
-              <p className="muted">Upload at least one document first.</p>
+            {!hasIndexed && !activeRun && (
+              <p className="muted">Index your documents first (see above).</p>
             )}
-            {workflowStatus && <p className="muted">Workflow status: {workflowStatus}</p>}
+            {activeRun && (
+              <p className="muted">
+                A workflow run is already {activeRun.status} for this project — wait for it to
+                reach a human gate or finish before starting another.
+              </p>
+            )}
           </section>
         </>
       )}

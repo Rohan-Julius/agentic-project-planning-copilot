@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Project, ReviewerIssue, ReviewerReport, WorkflowRun } from '../types'
+import type { Project, ReviewerIssue, ReviewerReport } from '../types'
 
 function IssueList({ title, issues }: { title: string; issues: ReviewerIssue[] }) {
   if (issues.length === 0) return null
@@ -24,12 +24,12 @@ function IssueList({ title, issues }: { title: string; issues: ReviewerIssue[] }
 
 export default function ReviewerScreen() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [report, setReport] = useState<ReviewerReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
-  const [approvedRun, setApprovedRun] = useState<WorkflowRun | null>(null)
 
   useEffect(() => {
     if (!projectId) return
@@ -46,18 +46,17 @@ export default function ReviewerScreen() {
       .finally(() => setLoading(false))
   }, [projectId])
 
-  async function handleApprove() {
+  function handleApprove() {
     if (!projectId) return
     setError(null)
     setApproving(true)
-    try {
-      const run = await api.post<WorkflowRun>(`/projects/${projectId}/plan/approve`, {})
-      setApprovedRun(run)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message)
-    } finally {
-      setApproving(false)
-    }
+    // Approving resumes the graph synchronously on the backend — navigate to the Agent
+    // Execution screen immediately rather than awaiting this response (same reasoning as
+    // DocumentWorkspace's workflow/start and ClarificationWorkspace's clarifications/approve).
+    api.post(`/projects/${projectId}/plan/approve`, {}).catch((err) => {
+      console.error('plan/approve request failed', err)
+    })
+    navigate(`/projects/${projectId}/workflow`)
   }
 
   return (
@@ -120,13 +119,7 @@ export default function ReviewerScreen() {
               <button className="button" type="button" disabled={approving} onClick={handleApprove}>
                 {approving ? 'Approving…' : 'Approve plan'}
               </button>
-              {approvedRun && (
-                <Link className="button" to={`/projects/${projectId}/export`}>
-                  Go to export →
-                </Link>
-              )}
             </div>
-            {approvedRun && <p className="muted">Workflow status: {approvedRun.status}</p>}
           </section>
         </>
       )}

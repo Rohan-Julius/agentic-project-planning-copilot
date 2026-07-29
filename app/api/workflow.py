@@ -13,6 +13,7 @@ from app.services import project_service
 from app.services.vector_service import VectorService, get_vector_service
 from app.workflow import engine
 from app.workflow.checkpointer import get_checkpointer
+from app.workflow.engine import STATUS_RUNNING, STATUS_WAITING_FOR_HUMAN_INPUT
 
 router = APIRouter(prefix="/projects/{project_id}/workflow", tags=["workflow"])
 
@@ -31,6 +32,20 @@ def start_workflow(
     vector_service: VectorService = Depends(get_vector_service),
 ):
     _require_project(session, project_id)
+    existing = session.scalar(
+        select(WorkflowRun)
+        .where(WorkflowRun.project_id == project_id)
+        .order_by(WorkflowRun.started_at.desc())
+    )
+    if existing is not None and existing.status in (STATUS_RUNNING, STATUS_WAITING_FOR_HUMAN_INPUT):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Workflow run '{existing.workflow_run_id}' is already {existing.status} for "
+                f"project '{project_id}' — wait for it to finish or reach a human gate before "
+                "starting another run."
+            ),
+        )
     run = engine.start_workflow(session, checkpointer, project_id, session_factory, vector_service)
     return WorkflowRunRead.model_validate(run)
 
@@ -50,10 +65,22 @@ def workflow_status(project_id: str, session: Session = Depends(get_session)):
 
 @router.get("/events", response_model=list[WorkflowEventRead])
 def workflow_events(project_id: str, session: Session = Depends(get_session)):
+    """Events for the project's *latest* workflow run only (spec §16.4's execution screen
+    shows one run's live progress, not a jumbled history of every past attempt — a project
+    re-run after an earlier failure must not have that failure's events mixed into the
+    current run's log).
+    """
     _require_project(session, project_id)
+    latest_run = session.scalar(
+        select(WorkflowRun)
+        .where(WorkflowRun.project_id == project_id)
+        .order_by(WorkflowRun.started_at.desc())
+    )
+    if latest_run is None:
+        return []
     events = session.scalars(
         select(WorkflowEvent)
-        .where(WorkflowEvent.project_id == project_id)
+        .where(WorkflowEvent.workflow_run_id == latest_run.workflow_run_id)
         .order_by(WorkflowEvent.timestamp)
     ).all()
     return [WorkflowEventRead.model_validate(e) for e in events]

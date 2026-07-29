@@ -9,6 +9,8 @@ something). Tests here assert on that structural guarantee rather than a fixed s
 """
 from __future__ import annotations
 
+from app.models.workflow import WorkflowRun
+
 
 def _create_project(client) -> str:
     response = client.post("/projects", json={"name": "Leave Management"})
@@ -80,3 +82,73 @@ def test_workflow_supervisor_makes_routing_decision(client):
     assert len(decision_events) > 0, "Supervisor should emit a RECOMMEND_* decision"
     assert decision_events[0]["action"] == "RECOMMEND_RUN_REQUIREMENT_ANALYST", \
         "Empty state should recommend requirement analyst"
+
+
+def test_start_workflow_rejects_a_second_run_while_one_is_active(client):
+    """A project can only have one workflow run driving it at a time — starting a second
+    run while one is RUNNING or WAITING_FOR_HUMAN_INPUT would spawn a concurrent graph
+    invocation racing the first one for the same project's rows (and the same local LLM).
+    """
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-existing", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/start")
+
+    assert response.status_code == 409
+
+
+def test_start_workflow_rejects_a_second_run_while_waiting_for_human_input(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(
+        WorkflowRun(
+            workflow_run_id="RUN-existing", project_id=project_id,
+            status="WAITING_FOR_HUMAN_INPUT",
+        )
+    )
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/start")
+
+    assert response.status_code == 409
+
+
+def test_events_only_include_the_latest_run_not_older_finished_runs(client):
+    """A project re-run after an earlier failed/finished run must not show that old run's
+    events mixed into the current run's execution log (§16.4) — otherwise a healthy new run
+    looks like it's stuck repeating old errors.
+    """
+    from app.models.workflow import WorkflowEvent
+
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-old", project_id=project_id, status="ERROR"))
+    session.add(
+        WorkflowEvent(
+            workflow_run_id="RUN-old", project_id=project_id,
+            agent="RequirementAnalyst", action="ERROR", status="ERROR",
+        )
+    )
+    session.commit()
+    session.close()
+
+    client.post(f"/projects/{project_id}/workflow/start")
+    events = client.get(f"/projects/{project_id}/workflow/events").json()
+
+    assert all(e["workflow_run_id"] != "RUN-old" for e in events)
+
+
+def test_start_workflow_allows_a_new_run_once_the_previous_one_finished(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-old", project_id=project_id, status="COMPLETED"))
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/start")
+
+    assert response.status_code == 200

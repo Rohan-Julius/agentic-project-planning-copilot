@@ -50,12 +50,19 @@ export default function AgentExecutionScreen() {
     }
   }, [projectId])
 
-  const lastSupervisorRecommendation = [...events]
-    .reverse()
-    .find((e) => e.agent === 'Supervisor' && e.action.startsWith('RECOMMEND_'))?.action
+  // WorkflowRun.status only updates when a graph invocation *returns* — after a human
+  // approves a gate, the backend resumes and keeps running (Planning, Reviewer, ...)
+  // without touching `status` until it returns again, so `status` stays stuck at
+  // WAITING_FOR_HUMAN_INPUT for that whole stretch. Same issue for `lastSupervisorRecommendation`
+  // (the Supervisor isn't re-invoked between the gate and the next node it routes straight
+  // to). Neither is trustworthy on its own. What's actually true is only whichever event was
+  // logged *last overall* — if that's still the gate recommendation, nothing has happened
+  // since and we're genuinely waiting; the moment any newer event lands, the gate has been
+  // passed, regardless of what the stale `status`/`lastSupervisorRecommendation` still say.
+  const latestEvent = events[events.length - 1]
   const gateLink =
-    run?.status === 'WAITING_FOR_HUMAN_INPUT' && lastSupervisorRecommendation
-      ? SUPERVISOR_RECOMMENDATION_LINKS[lastSupervisorRecommendation]
+    latestEvent?.agent === 'Supervisor' && latestEvent.action.startsWith('RECOMMEND_')
+      ? SUPERVISOR_RECOMMENDATION_LINKS[latestEvent.action]
       : undefined
 
   return (

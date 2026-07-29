@@ -68,13 +68,33 @@ def run_agent(
         try:
             logger.debug(f"[{agent_name}] attempt {attempt}/{max_retries + 1}")
 
-            # Call Ollama with structured output (format parameter enforces JSON schema)
+            # Call Ollama with structured output (format parameter enforces JSON schema).
+            # Tuned specifically for qwen3:4b-instruct (spec §15's recommended default,
+            # what this app is actually run against):
+            #   - think=False: qwen3 defaults to emitting a large hidden chain-of-thought
+            #     block before its answer. 
+            #   - keep_alive="30m": agents that make several sequential calls (Planning
+            #     does 4) can leave Ollama idle between them long enough for the default
+            #     keep-alive to unload the model.
+            #   - num_ctx=32768: the default context window silently truncates long
+            #     prompts — losing part of the prompt an agent needs.
+            #   - num_predict=8192: bounds worst-case output length so a degenerate
+            #     repetition loop can't run for many extra minutes once it starts.
+            #     (4096 was tried first and was too low — a real, non-degenerate
+            #     RequirementAnalysisResult for a modest document legitimately needs
+            #     more than that and got cut off mid-string, producing invalid JSON.)
             response = ollama.generate(
                 model=settings.llm_model,
                 prompt=full_prompt,
                 format=schema,
                 stream=False,
-                options={"temperature": 0.3},  # Low temp for deterministic routing
+                think=False,
+                keep_alive="30m",
+                options={
+                    "temperature": 0.3,  # Low temp for deterministic routing
+                    "num_ctx": 32768,
+                    "num_predict": 8192,
+                },
             )
 
             # response["response"] is the model's output (guaranteed valid JSON by Ollama)

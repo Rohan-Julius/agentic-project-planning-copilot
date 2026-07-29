@@ -60,6 +60,12 @@ export interface WorkflowRun {
   ended_at: string | null
 }
 
+export interface IndexResult {
+  indexed_document_ids: string[]
+  chunk_count: number
+  errors: Record<string, string>
+}
+
 export type Classification =
   | 'SOURCE_BACKED'
   | 'CLARIFICATION_BACKED'
