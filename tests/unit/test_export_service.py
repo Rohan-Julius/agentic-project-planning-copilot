@@ -25,6 +25,7 @@ from app.services.export_service import (
     build_json_export,
     build_markdown_export,
     build_zip_bytes,
+    format_source_references,
     write_jira_csv_file,
     write_json_file,
     write_markdown_file,
@@ -164,3 +165,70 @@ def test_build_zip_bytes_contains_every_written_file(tmp_path):
         names = set(zf.namelist())
 
     assert names == {"plan.json", "plan.md", "jira.csv"}
+
+
+def test_format_source_references_omits_missing_page_number():
+    ref = SourceReference(document_name="requirements.pdf", section="Payments", chunk_id="CH-001")
+    assert format_source_references([ref]) == "requirements.pdf §Payments [CH-001]"
+
+
+def test_format_source_references_omits_missing_section():
+    ref = SourceReference(document_name="requirements.pdf", page_number=2, chunk_id="CH-001")
+    assert format_source_references([ref]) == "requirements.pdf p.2 [CH-001]"
+
+
+def test_format_source_references_bare_chunk_id_when_page_and_section_missing():
+    ref = SourceReference(document_name="requirements.pdf", chunk_id="CH-001")
+    assert format_source_references([ref]) == "requirements.pdf [CH-001]"
+
+
+def test_format_source_references_joins_multiple_refs_with_semicolon():
+    refs = [
+        SourceReference(document_name="a.pdf", page_number=1, chunk_id="CH-001"),
+        SourceReference(document_name="b.pdf", page_number=2, chunk_id="CH-002"),
+    ]
+    assert format_source_references(refs) == "a.pdf p.1 [CH-001]; b.pdf p.2 [CH-002]"
+
+
+def test_format_source_references_empty_list_returns_empty_string():
+    assert format_source_references([]) == ""
+
+
+def test_format_source_references_preserves_unicode_document_name():
+    ref = SourceReference(document_name="Café Menu.pdf", page_number=1, chunk_id="CH-001")
+    assert format_source_references([ref]) == "Café Menu.pdf p.1 [CH-001]"
+
+
+def test_jira_csv_rows_empty_plan_produces_no_rows():
+    """A plan with zero epics and zero stories must still produce valid (empty) CSV
+    structure, not an error."""
+    empty_plan = ProjectPlan(
+        summary=ProjectSummary(business_problem="p", proposed_solution="s"), scope=Scope(),
+    )
+
+    rows = build_jira_csv_rows(empty_plan)
+
+    assert rows == []
+
+
+def test_jira_csv_text_quotes_fields_containing_commas_and_newlines():
+    """CSV values containing the delimiter or embedded newlines must round-trip correctly
+    through Python's csv module (proper quoting), not corrupt the row structure."""
+    plan = ProjectPlan(
+        summary=ProjectSummary(business_problem="p", proposed_solution="s"), scope=Scope(),
+        epics=[
+            Epic(
+                epic_id="EPIC-001", title="Epic, with a comma",
+                objective="Line one.\nLine two, with a comma.",
+                business_value="v", priority="High", classification="ASSUMPTION",
+            )
+        ],
+    )
+
+    text = build_jira_csv_text(plan)
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+
+    assert len(rows) == 1
+    assert rows[0]["Summary"] == "Epic, with a comma"
+    assert rows[0]["Description"] == "Line one.\nLine two, with a comma."

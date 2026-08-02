@@ -129,6 +129,33 @@ def test_parse_docx_heading_hierarchy(tmp_path):
     assert all(b.page_number is None for b in parsed.blocks)
 
 
+def test_parse_empty_docx_raises(tmp_path):
+    document = docx.Document()
+    document.add_paragraph("   ")
+    path = tmp_path / "empty.docx"
+    document.save(path)
+
+    with pytest.raises(EmptyDocumentError):
+        parse_document(path, ".docx", "doc_empty_docx")
+
+
+def test_parse_docx_sibling_resets_hierarchy(tmp_path):
+    document = docx.Document()
+    document.add_heading("Title", level=1)
+    document.add_heading("Section A", level=2)
+    document.add_paragraph("Body A.")
+    document.add_heading("Section B", level=2)
+    document.add_paragraph("Body B.")
+    path = tmp_path / "sibling.docx"
+    document.save(path)
+
+    parsed = parse_document(path, ".docx", "doc_sibling_docx")
+    by_text = {b.text: b for b in parsed.blocks}
+
+    assert by_text["Section B"].section_hierarchy_path == "Title > Section B"
+    assert by_text["Body B."].section_hierarchy_path == "Title > Section B"
+
+
 def test_parse_corrupted_docx_raises(tmp_path):
     path = tmp_path / "broken.docx"
     path.write_bytes(b"this is not a real docx zip")

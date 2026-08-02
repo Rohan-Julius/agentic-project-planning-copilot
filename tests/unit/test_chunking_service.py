@@ -72,6 +72,26 @@ def test_whole_document_is_one_chunk_when_no_headings_and_small(embedder):
     assert chunks[0].text == "Just one small paragraph of text."
 
 
+def test_section_exactly_at_token_limit_does_not_split(embedder):
+    """chunk_document's own comparison is `<= limit` throughout (verified in
+    app/services/chunking_service.py) — a section whose token count is exactly equal to
+    token_limit must stay as one chunk, not split. This locks in the inclusive boundary so a
+    future off-by-one change (`<` instead of `<=`) would be caught.
+    """
+    body = "words words words words words words words words words words"
+    blocks = [
+        _block("1. Section", heading_level=1, path="1. Section"),
+        _block(body, path="1. Section"),
+    ]
+    parsed = ParsedDocument(document_id="doc_abc123", blocks=blocks)
+    exact_tokens = embedder.count_tokens("1. Section " + body)
+
+    chunks = chunk_document(_document(), parsed, embedder, token_limit=exact_tokens)
+
+    assert len(chunks) == 1
+    assert "1. Section" in chunks[0].text and body in chunks[0].text
+
+
 # --- Tier 2: subheading split when a level-1 section is too big ---------------------
 
 
