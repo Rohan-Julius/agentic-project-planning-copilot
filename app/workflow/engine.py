@@ -120,6 +120,32 @@ def start_workflow(
     return _sync_run(session, run, result)
 
 
+def get_pending_gate_stage(
+    checkpointer: BaseCheckpointSaver,
+    workflow_run_id: str,
+    session_factory: sessionmaker,
+    vector_service: VectorService | None = None,
+) -> str | None:
+    """The stage name (`NODE_CLARIFICATION_GATE` or `NODE_FINAL_GATE`) of whichever gate is
+    currently interrupted, or `None` if the run isn't paused at a gate right now.
+
+    Both gate nodes call `interrupt({"stage": ...})` as their first statement (graph.py),
+    so this is the only reliable way to tell *which* gate a WAITING_FOR_HUMAN_INPUT run is
+    actually paused at — `WorkflowRun.status` alone can't distinguish them (both gates report
+    the same generic status), which previously let `/clarifications/approve` silently resume
+    a paused `final_gate` (setting the already-true `clarification_approved` and leaving
+    `final_approved` unset, so the run just re-paused at `final_gate` — looked like an
+    infinite loop; found live).
+    """
+    graph = compile_graph(checkpointer)
+    config = _config(workflow_run_id, session_factory, vector_service)
+    snapshot = graph.get_state(config)
+    if not snapshot.interrupts:
+        return None
+    value = snapshot.interrupts[0].value
+    return value.get("stage") if isinstance(value, dict) else None
+
+
 def resume_workflow(
     session: Session,
     checkpointer: BaseCheckpointSaver,

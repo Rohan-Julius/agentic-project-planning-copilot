@@ -15,6 +15,7 @@ from app.services.vector_service import VectorService, get_vector_service
 from app.workflow import engine
 from app.workflow.checkpointer import get_checkpointer
 from app.workflow.engine import STATUS_WAITING_FOR_HUMAN_INPUT
+from app.workflow.routes import NODE_CLARIFICATION_GATE
 
 router = APIRouter(prefix="/projects/{project_id}/clarifications", tags=["clarifications"])
 
@@ -70,6 +71,18 @@ def approve_clarifications(
             detail=(
                 f"Workflow run '{run.workflow_run_id}' is not waiting for human input "
                 f"(status: {run.status})"
+            ),
+        )
+
+    pending_gate = engine.get_pending_gate_stage(
+        checkpointer, run.workflow_run_id, session_factory, vector_service
+    )
+    if pending_gate != NODE_CLARIFICATION_GATE:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Workflow run '{run.workflow_run_id}' is not waiting at the clarification "
+                f"gate (currently paused at: {pending_gate!r}) — nothing to approve here."
             ),
         )
 

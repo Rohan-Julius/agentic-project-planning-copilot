@@ -58,6 +58,7 @@ export interface WorkflowRun {
   final_approved: boolean
   started_at: string
   ended_at: string | null
+  pending_gate: string | null
 }
 
 export interface IndexResult {

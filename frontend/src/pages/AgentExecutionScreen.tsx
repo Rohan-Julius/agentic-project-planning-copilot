@@ -3,13 +3,19 @@ import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { Project, WorkflowEvent, WorkflowRun } from '../types'
 
-// Keyed by the Supervisor's own `RECOMMEND_<SupervisorAction>` event action (app/workflow/graph.py
-// supervisor_node), not by gate stage: a real interrupt never logs an event at the gate's own
-// stage (clarification_gate_node/final_gate_node log only *after* resuming, since interrupt()
-// runs first), so the last-event-stage would never match while genuinely waiting.
-const SUPERVISOR_RECOMMENDATION_LINKS: Record<string, { label: string; to: string }> = {
-  RECOMMEND_WAIT_FOR_CLARIFICATIONS: { label: 'Answer clarification questions', to: 'clarifications' },
-  RECOMMEND_WAIT_FOR_FINAL_APPROVAL: { label: 'Review the plan and approve', to: 'review' },
+// Keyed by `WorkflowRun.pending_gate` (app/api/workflow.py `/workflow/status`, backed by
+// engine.get_pending_gate_stage reading the interrupt's own `{"stage": ...}` payload) — a
+// deterministic signal, not the Supervisor's advisory `RECOMMEND_*` recommendation. That
+// recommendation is a separate LLM call that proved unreliable at picking the right action
+// for more than one state transition (found live, twice) and is kept in the execution log
+// purely for audit/debugging, never for navigation.
+// final_gate routes to /plan first, not straight to /review — the intended flow is
+// Execution screen → Plan (read the full generated plan) → Reviewer findings → Approve.
+// PlanningWorkspace's own header already links forward to /review ("Reviewer findings →"),
+// so this just makes that the entry point instead of skipping straight to approval.
+const GATE_LINKS: Record<string, { label: string; to: string }> = {
+  clarification_gate: { label: 'Answer clarification questions', to: 'clarifications' },
+  final_gate: { label: 'Review the plan and approve', to: 'plan' },
 }
 
 export default function AgentExecutionScreen() {
@@ -53,17 +59,21 @@ export default function AgentExecutionScreen() {
   // WorkflowRun.status only updates when a graph invocation *returns* — after a human
   // approves a gate, the backend resumes and keeps running (Planning, Reviewer, ...)
   // without touching `status` until it returns again, so `status` stays stuck at
-  // WAITING_FOR_HUMAN_INPUT for that whole stretch. Same issue for `lastSupervisorRecommendation`
-  // (the Supervisor isn't re-invoked between the gate and the next node it routes straight
-  // to). Neither is trustworthy on its own. What's actually true is only whichever event was
-  // logged *last overall* — if that's still the gate recommendation, nothing has happened
-  // since and we're genuinely waiting; the moment any newer event lands, the gate has been
-  // passed, regardless of what the stale `status`/`lastSupervisorRecommendation` still say.
+  // WAITING_FOR_HUMAN_INPUT for that whole stretch. What's actually true mid-run is only
+  // whichever event was logged *last overall* — if it's IN_PROGRESS, the graph is still
+  // working regardless of what the stale `status` says.
   const latestEvent = events[events.length - 1]
-  const gateLink =
-    latestEvent?.agent === 'Supervisor' && latestEvent.action.startsWith('RECOMMEND_')
-      ? SUPERVISOR_RECOMMENDATION_LINKS[latestEvent.action]
-      : undefined
+
+  const gateLink = run?.pending_gate ? GATE_LINKS[run.pending_gate] : undefined
+
+  // `run.status` is stale mid-run (see comment above) — while the latest event is still
+  // IN_PROGRESS, the graph is actively executing regardless of what `run.status` says, so
+  // show that instead of the misleading gate status (e.g. "WAITING_FOR_HUMAN_INPUT" while
+  // Planning is genuinely mid-generation).
+  const displayStatus =
+    run && latestEvent?.status === 'IN_PROGRESS'
+      ? `RUNNING — ${latestEvent.agent}: ${latestEvent.action}`
+      : run?.status
 
   return (
     <div className="page">
@@ -83,7 +93,7 @@ export default function AgentExecutionScreen() {
       {run && (
         <>
           <section className="panel">
-            <h2>Status: {run.status}</h2>
+            <h2>Status: {displayStatus}</h2>
             <p className="muted">
               Run {run.workflow_run_id} · revision count {run.revision_count} · final approved:{' '}
               {String(run.final_approved)}
@@ -91,6 +101,11 @@ export default function AgentExecutionScreen() {
             {gateLink && (
               <Link className="button" to={`/projects/${projectId}/${gateLink.to}`}>
                 {gateLink.label} →
+              </Link>
+            )}
+            {run.status === 'COMPLETED' && (
+              <Link className="button" to={`/projects/${projectId}/export`}>
+                View export →
               </Link>
             )}
           </section>

@@ -10,6 +10,8 @@ something). Tests here assert on that structural guarantee rather than a fixed s
 from __future__ import annotations
 
 from app.models.workflow import WorkflowRun
+from app.workflow.engine import STATUS_WAITING_FOR_HUMAN_INPUT
+from app.workflow.graph import compile_graph
 
 
 def _create_project(client) -> str:
@@ -152,3 +154,75 @@ def test_start_workflow_allows_a_new_run_once_the_previous_one_finished(client):
     response = client.post(f"/projects/{project_id}/workflow/start")
 
     assert response.status_code == 200
+
+
+def test_status_pending_gate_is_null_when_not_waiting(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-running", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    response = client.get(f"/projects/{project_id}/workflow/status")
+
+    assert response.status_code == 200
+    assert response.json()["pending_gate"] is None
+
+
+def test_status_pending_gate_reflects_the_actual_interrupted_gate(client):
+    """`pending_gate` must come from the interrupt's own payload (which gate actually called
+    `interrupt()`), not be guessed from `WorkflowRun.status` — that status alone can't tell
+    the clarification gate and the final gate apart. This is the same deterministic signal
+    the approve endpoints use to guard against resuming the wrong gate (see
+    test_approve_clarifications_while_paused_at_final_gate_returns_409).
+    """
+    project_id = _create_project(client)
+    session_factory = client.session_factory
+
+    workflow_run_id = "RUN-pending-gate-test"
+    config = {
+        "configurable": {
+            "thread_id": workflow_run_id,
+            "session_factory": session_factory,
+            "vector_service": None,
+        },
+        "recursion_limit": 20,
+    }
+    graph = compile_graph(client.checkpointer)
+    seeded_state = {
+        "project_id": project_id,
+        "current_stage": "start",
+        "next_action": None,
+        "document_ids": [],
+        "requirement_ids": ["REQ-1"],
+        "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 1,
+        "clarification_approved": True,
+        "plan_version_id": "ver_1",
+        "reviewer_decision": "PASS",
+        "reviewer_issue_ids": [],
+        "revision_count": 0,
+        "final_approved": False,
+        "errors": [],
+        "workflow_events": [],
+    }
+    interrupted = graph.invoke(seeded_state, config=config)
+    assert interrupted["__interrupt__"][0].value["stage"] == "final_gate"
+
+    session = session_factory()
+    try:
+        session.add(
+            WorkflowRun(
+                workflow_run_id=workflow_run_id,
+                project_id=project_id,
+                status=STATUS_WAITING_FOR_HUMAN_INPUT,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(f"/projects/{project_id}/workflow/status")
+
+    assert response.status_code == 200
+    assert response.json()["pending_gate"] == "final_gate"

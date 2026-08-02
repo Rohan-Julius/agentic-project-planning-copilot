@@ -50,6 +50,13 @@ def _summarize_state(state: ProjectWorkflowState) -> str:
 
     if state["reviewer_decision"] == "REVISION_REQUIRED" and state["revision_count"] < 1:
         parts.append(f"↻ Revision: AVAILABLE (revision_count={state['revision_count']})")
+    elif state["reviewer_decision"] == "REVISION_REQUIRED" and state["revision_count"] >= 1:
+        parts.append(
+            f"↻ Revision: EXHAUSTED (max 1 allowed, count={state['revision_count']}) — "
+            "the plan still has open issues, but no more revisions are allowed, so the "
+            "correct next action is WAIT_FOR_FINAL_APPROVAL, not WAIT_FOR_CLARIFICATIONS "
+            "(clarifications were already approved earlier in this run) and not REVISE_PLAN."
+        )
     elif state["revision_count"] >= 1:
         parts.append(f"↻ Revision: EXHAUSTED (max 1 allowed, count={state['revision_count']})")
 

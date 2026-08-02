@@ -76,8 +76,14 @@ def run_agent(
             #   - keep_alive="30m": agents that make several sequential calls (Planning
             #     does 4) can leave Ollama idle between them long enough for the default
             #     keep-alive to unload the model.
-            #   - num_ctx=32768: the default context window silently truncates long
-            #     prompts — losing part of the prompt an agent needs.
+            #   - num_ctx=16384: the default context window silently truncates long
+            #     prompts — losing part of the prompt an agent needs. 16384 leaves an
+            #     8192-token prompt budget (after num_predict below), 2x the largest
+            #     prompt observed live (4434 tokens) that originally got truncated to
+            #     ~2050. A larger ctx (32768 was tried first) measurably slows every
+            #     call — even short ones — via bigger KV-cache allocation on CPU-only
+            #     inference, so this is the smaller value that's still safely above
+            #     the observed real-world need.
             #   - num_predict=8192: bounds worst-case output length so a degenerate
             #     repetition loop can't run for many extra minutes once it starts.
             #     (4096 was tried first and was too low — a real, non-degenerate
@@ -92,7 +98,7 @@ def run_agent(
                 keep_alive="30m",
                 options={
                     "temperature": 0.3,  # Low temp for deterministic routing
-                    "num_ctx": 32768,
+                    "num_ctx": 16384,
                     "num_predict": 8192,
                 },
             )

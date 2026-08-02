@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -17,9 +17,18 @@ from app.models.base import Base
 
 class RequirementRecord(Base):
     __tablename__ = "requirements"
+    __table_args__ = (
+        # The Requirement Analyst's own prompt tells the LLM requirement_id is "unique
+        # within project" (app/agents/requirement_analyst.py) and lets it assign REQ-XXXX
+        # directly rather than minting IDs in Python — every project's extraction reliably
+        # starts back at REQ-001, so uniqueness must be scoped to (project_id,
+        # requirement_id), not global, or a second project's save collides with an
+        # unrelated earlier project's rows.
+        UniqueConstraint("project_id", "requirement_id", name="uq_requirement_project_reqid"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    requirement_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    requirement_id: Mapped[str] = mapped_column(String, index=True)
     project_id: Mapped[str] = mapped_column(
         String, ForeignKey("projects.project_id"), index=True
     )
@@ -36,9 +45,14 @@ class RequirementRecord(Base):
 
 class ClarificationQuestionRecord(Base):
     __tablename__ = "clarification_questions"
+    __table_args__ = (
+        # Same reasoning as RequirementRecord above — question_id ("Q-XXXX" per the same
+        # prompt) is LLM-assigned and only meant to be unique within a project.
+        UniqueConstraint("project_id", "question_id", name="uq_clarification_project_qid"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    question_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    question_id: Mapped[str] = mapped_column(String, index=True)
     project_id: Mapped[str] = mapped_column(
         String, ForeignKey("projects.project_id"), index=True
     )

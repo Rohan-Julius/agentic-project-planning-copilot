@@ -204,17 +204,29 @@ def test_sprint_plan_is_marked_ai_draft_by_default():
 
 # --- Planning Agent draft/wrapper schemas (Day 11, DESIGN.md §0.2/§8.3) ---
 
-def test_epic_draft_requires_citation_when_source_backed():
+def test_epic_draft_allows_source_backed_without_citation():
+    """Intentionally more lenient than the final `Epic` (see
+    test_epic_source_backed_without_citation_rejected above): EpicDraft's source_references
+    get deterministically backfilled from grounding_requirement_ids after parsing
+    (app/agents/planning.py::_assign_epic_ids), so enforcing the citation-required check at
+    LLM-output parse time is redundant — and was actively harmful once the Planning prompt
+    told the model grounding_requirement_ids was authoritative and source_references merely
+    best-effort: the model reliably stopped filling source_references at all, and the old
+    strict check on EpicDraft then rejected every epic in the batch before the backfill logic
+    ever ran, crashing the whole Planning node (found live). The strict rule still applies to
+    the final `Epic`, just enforced one step later, after backfill.
+    """
     from app.schemas.planning import EpicDraft
 
-    with pytest.raises(ValidationError, match="SOURCE_BACKED requires at least one source_reference"):
-        EpicDraft(
-            title="Payments",
-            objective="Enable payments",
-            business_value="Revenue",
-            priority="High",
-            classification="SOURCE_BACKED",
-        )
+    draft = EpicDraft(
+        title="Payments",
+        objective="Enable payments",
+        business_value="Revenue",
+        priority="High",
+        classification="SOURCE_BACKED",
+        grounding_requirement_ids=["REQ-1"],
+    )
+    assert draft.source_references == []
 
 
 def test_epic_draft_has_no_epic_id_field():

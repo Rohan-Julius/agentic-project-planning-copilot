@@ -94,6 +94,12 @@ def save_requirements(
     session_factory = session_factory or get_sessionmaker()
     session = session_factory()
     try:
+        # Re-running the analyst on a project that was already analyzed would otherwise
+        # collide with the (project_id, requirement_id) unique constraint — the LLM
+        # always renumbers from REQ-001. A fresh analysis supersedes the prior one.
+        session.query(RequirementRecord).filter(
+            RequirementRecord.project_id == project_id
+        ).delete()
         for req_pydantic in analysis_result.requirements:
             # Create ORM record with full payload (spec §22 versioning)
             req_record = RequirementRecord(
@@ -135,6 +141,11 @@ def save_clarification_questions(
     session_factory = session_factory or get_sessionmaker()
     session = session_factory()
     try:
+        # Same reasoning as save_requirements above — question_id is renumbered from
+        # Q-001 on every analysis run, so a fresh run supersedes previously saved ones.
+        session.query(ClarificationQuestionRecord).filter(
+            ClarificationQuestionRecord.project_id == project_id
+        ).delete()
         for q_pydantic in analysis_result.clarification_questions:
             q_record = ClarificationQuestionRecord(
                 question_id=q_pydantic.question_id,

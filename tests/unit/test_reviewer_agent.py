@@ -144,7 +144,9 @@ def test_run_reviewer_agent_forces_revision_on_structural_failure(session_factor
     assert any(i.issue_type == "DANGLING_CITATION" for i in report.revision_instructions)
 
 
-def test_run_reviewer_agent_does_not_override_an_already_required_revision(session_factory):
+def test_run_reviewer_agent_does_not_duplicate_findings_when_plan_is_structurally_clean(session_factory):
+    """When the validator finds nothing wrong, the LLM's own REVISION_REQUIRED report passes
+    through untouched — no forced issues to append."""
     from app.agents.reviewer import run_reviewer_agent
 
     _seed_plan(session_factory, "PRJ-R3", _clean_plan())
@@ -160,6 +162,53 @@ def test_run_reviewer_agent_does_not_override_an_already_required_revision(sessi
 
     assert report.decision == "REVISION_REQUIRED"
     assert len(report.revision_instructions) == 1  # not duplicated with validator findings
+
+
+def test_run_reviewer_agent_still_surfaces_structural_errors_when_llm_already_says_revision_required(
+    session_factory,
+):
+    """Found live: when the LLM's own decision already happens to be REVISION_REQUIRED (for
+    unrelated reasons), the deterministic validator's own findings (e.g. dangling citations)
+    were previously silently dropped instead of appended — a structurally invalid plan could
+    reach final approval with the human never having seen the actual validator error, only
+    whatever unrelated issue the LLM separately raised.
+    """
+    from app.agents.reviewer import run_reviewer_agent
+
+    dangling_epic = Epic(
+        epic_id="EPIC-001", title="Payments", objective="Let customers pay",
+        business_value="Revenue", priority="High", classification="SOURCE_BACKED",
+        source_references=[SourceReference(document_name="ghost.pdf", chunk_id="NOPE")],
+    )
+    plan = ProjectPlan(
+        summary=ProjectSummary(business_problem="p", proposed_solution="s"), scope=Scope(),
+        epics=[dangling_epic],
+        stories=[
+            UserStory(
+                story_id="US-001", epic_id="EPIC-001", title="t", persona="p",
+                story_statement="As a Customer, I want x, so that y.", business_value="v",
+                priority="High",
+                acceptance_criteria=[AcceptanceCriterion(criterion_id="AC-001", given="g", when="w", then="t")],
+                classification="ASSUMPTION", confidence=0.7,
+            )
+        ],
+        raid=RaidLog(),
+    )
+    _seed_plan(session_factory, "PRJ-R4", plan)
+    llm_report = ReviewerReport(
+        decision="REVISION_REQUIRED",
+        revision_instructions=[
+            ReviewerIssue(artifact_id="US-001", issue_type="WEAK_AC", description="d", recommended_action="a")
+        ],
+    )
+
+    with patch("app.agents.reviewer.run_agent", return_value=llm_report):
+        report = run_reviewer_agent("PRJ-R4", "RUN-1", session_factory=session_factory)
+
+    assert report.decision == "REVISION_REQUIRED"
+    issue_types = {i.issue_type for i in report.revision_instructions}
+    assert "WEAK_AC" in issue_types  # the LLM's own finding is preserved
+    assert "DANGLING_CITATION" in issue_types  # and the validator's finding is no longer dropped
 
 
 def test_run_reviewer_agent_prompt_includes_requirements_and_plan_content(session_factory):

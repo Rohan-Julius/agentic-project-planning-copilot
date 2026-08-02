@@ -18,6 +18,7 @@ export default function ClarificationWorkspace() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [approving, setApproving] = useState(false)
 
   function loadQuestions(id: string) {
@@ -34,6 +35,7 @@ export default function ClarificationWorkspace() {
   }, [projectId])
 
   function updateQuestion(questionId: string, patch: Partial<ClarificationQuestion>) {
+    setSaved(false)
     setQuestions((prev) =>
       prev.map((q) => (q.question_id === questionId ? { ...q, ...patch } : q)),
     )
@@ -55,6 +57,8 @@ export default function ClarificationWorkspace() {
         })),
       )
       await loadQuestions(projectId)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
@@ -161,7 +165,7 @@ export default function ClarificationWorkspace() {
           <div className="form-actions">
             {questions.length > 0 && (
               <button className="button" type="submit" disabled={saving}>
-                {saving ? 'Saving…' : 'Save answers'}
+                {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save answers'}
               </button>
             )}
             <button className="button" type="button" disabled={approving} onClick={handleApprove}>

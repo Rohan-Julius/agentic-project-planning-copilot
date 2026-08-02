@@ -39,6 +39,7 @@ from app.schemas.planning import (
     UserStory,
     UserStoryDraft,
 )
+from app.schemas.common import SourceReference
 from app.schemas.requirement import Requirement
 from app.schemas.reviewer import ReviewerIssue
 from app.tools.project_tools import (
@@ -96,11 +97,16 @@ clarification answers, company standards, and the project summary/scope already 
 
 PLANNING RULES (spec §7.3, §13.5):
 - Every epic must be grounded in one or more of the approved requirements provided below.
+- "grounding_requirement_ids" MUST list the exact requirement_id(s) (e.g. "REQ-003") from
+  APPROVED REQUIREMENTS that this epic addresses — copy the bracketed ID(s) verbatim, never
+  invent one. This is the authoritative link used to attach the correct citation
+  automatically; get this right even if you are unsure of the exact page/section text.
 - Classify every epic (spec §12.5): SOURCE_BACKED / CLARIFICATION_BACKED / ASSUMPTION /
   AI_RECOMMENDATION.
-- If an epic is SOURCE_BACKED, its source_references MUST reuse the exact
-  document_name/page_number/section/chunk_id already attached to the requirement(s) it comes
-  from. Never invent a chunk_id or citation that is not listed among the provided requirements.
+- If an epic is SOURCE_BACKED, also fill in source_references as your best-effort copy of
+  the document_name/page_number/section/chunk_id attached to the requirement(s) it comes
+  from — but "grounding_requirement_ids" above is what actually gets used, so prioritize
+  getting that field right.
 - {_NO_INVENTED_TECH_RULE}
 - Avoid duplicate epics; each epic should cover a distinct area of the approved scope.
 - Do not propose an "epic_id" — IDs are assigned deterministically after generation.
@@ -169,14 +175,43 @@ def _format_revision_instructions(instructions: "list[ReviewerIssue] | None") ->
     return "\n".join(lines) + "\n"
 
 
-def _assign_epic_ids(drafts: list[EpicDraft]) -> list[Epic]:
-    """Deterministic ID minting (DESIGN.md §0.2): the LLM proposes epic content, Python
-    assigns identity — IDs are stable, unique, and never LLM-hallucinated.
+def _grounded_source_references(
+    grounding_requirement_ids: list[str], requirements_by_id: dict[str, Requirement]
+) -> list[SourceReference]:
+    """Deterministically attach the *real* citation(s) from the requirement(s) an artifact
+    is grounded in, instead of trusting the model's own copy of source_references (see
+    Epic.grounding_requirement_ids docstring for why). Dedupes by chunk_id, preserving order.
     """
-    return [
-        Epic(epic_id=f"EPIC-{i:03d}", **draft.model_dump())
-        for i, draft in enumerate(drafts, start=1)
-    ]
+    refs: list[SourceReference] = []
+    seen: set[str] = set()
+    for req_id in grounding_requirement_ids:
+        req = requirements_by_id.get(req_id)
+        if req is None:
+            continue
+        for ref in req.source_references:
+            if ref.chunk_id in seen:
+                continue
+            seen.add(ref.chunk_id)
+            refs.append(ref)
+    return refs
+
+
+def _assign_epic_ids(drafts: list[EpicDraft], requirements: list[Requirement]) -> list[Epic]:
+    """Deterministic ID minting (DESIGN.md §0.2): the LLM proposes epic content, Python
+    assigns identity — IDs are stable, unique, and never LLM-hallucinated. Also backfills
+    source_references from grounding_requirement_ids (see that field's docstring) whenever
+    it resolves to at least one real requirement; falls back to the model's own citation
+    otherwise (e.g. ungrounded, so the dangling-citation validator can still catch it).
+    """
+    requirements_by_id = {r.requirement_id: r for r in requirements}
+    epics = []
+    for i, draft in enumerate(drafts, start=1):
+        data = draft.model_dump()
+        grounded_refs = _grounded_source_references(draft.grounding_requirement_ids, requirements_by_id)
+        if grounded_refs:
+            data["source_references"] = grounded_refs
+        epics.append(Epic(epic_id=f"EPIC-{i:03d}", **data))
+    return epics
 
 
 def run_planning_agent_summary_scope_epics(
@@ -283,7 +318,7 @@ COMPANY STANDARDS:
         output_model=PlanningEpicsResult,
         max_retries=1,  # §20.1: max 1 retry on schema failure
     )
-    epics = _assign_epic_ids(epics_result.epics)
+    epics = _assign_epic_ids(epics_result.epics, requirements)
 
     logger.info(f"[Planning] generated {len(epics)} epics")
 
@@ -303,10 +338,14 @@ Given/When/Then triple; every story needs at least one.
 PLANNING RULES (spec §7.3, §13.6):
 - Every story's "epic_id" MUST be one of the exact epic IDs listed below under EPICS. Never
   invent a new epic_id or leave it blank.
+- "grounding_requirement_ids" MUST list the exact requirement_id(s) (e.g. "REQ-003") from
+  APPROVED REQUIREMENTS that this story addresses — copy the bracketed ID(s) verbatim, never
+  invent one. This is the authoritative link used to attach the correct citation
+  automatically; get this right even if you are unsure of the exact page/section text.
 - Classify every story (spec §12.5): SOURCE_BACKED / CLARIFICATION_BACKED / ASSUMPTION /
-  AI_RECOMMENDATION. If SOURCE_BACKED, source_references MUST reuse an exact
-  document_name/page_number/section/chunk_id already attached to the requirement(s) the story
-  comes from — never invent a chunk_id.
+  AI_RECOMMENDATION. If SOURCE_BACKED, also fill in source_references as your best-effort
+  copy of the citation attached to the requirement(s) the story comes from — but
+  "grounding_requirement_ids" above is what actually gets used.
 - Avoid duplicate or overlapping stories; each story should be a distinct piece of work.
 - suggested_story_points and priority are suggestions, not guaranteed estimates.
 - {_NO_INVENTED_TECH_RULE}
@@ -341,11 +380,15 @@ def _filter_stories_with_unknown_epic(
     return valid
 
 
-def _assign_story_and_ac_ids(drafts: list[UserStoryDraft]) -> list[UserStory]:
+def _assign_story_and_ac_ids(
+    drafts: list[UserStoryDraft], requirements: list[Requirement]
+) -> list[UserStory]:
     """Deterministic ID minting (DESIGN.md §0.2) for stories and their nested acceptance
-    criteria — mirrors `_assign_epic_ids`; `criterion_id`s are numbered globally across the
-    whole plan in generation order, `story_id`s per story.
+    criteria — mirrors `_assign_epic_ids`, including the same source_references backfill
+    from grounding_requirement_ids; `criterion_id`s are numbered globally across the whole
+    plan in generation order, `story_id`s per story.
     """
+    requirements_by_id = {r.requirement_id: r for r in requirements}
     stories: list[UserStory] = []
     ac_counter = 0
     for i, draft in enumerate(drafts, start=1):
@@ -356,6 +399,9 @@ def _assign_story_and_ac_ids(drafts: list[UserStoryDraft]) -> list[UserStory]:
                 AcceptanceCriterion(criterion_id=f"AC-{ac_counter:03d}", **ac_draft.model_dump())
             )
         story_data = draft.model_dump(exclude={"acceptance_criteria"})
+        grounded_refs = _grounded_source_references(draft.grounding_requirement_ids, requirements_by_id)
+        if grounded_refs:
+            story_data["source_references"] = grounded_refs
         stories.append(
             UserStory(story_id=f"US-{i:03d}", acceptance_criteria=criteria, **story_data)
         )
@@ -402,7 +448,7 @@ COMPANY STANDARDS:
     )
     known_epic_ids = {e.epic_id for e in epics}
     valid_drafts = _filter_stories_with_unknown_epic(result.stories, known_epic_ids)
-    return _assign_story_and_ac_ids(valid_drafts)
+    return _assign_story_and_ac_ids(valid_drafts, requirements)
 
 
 _TASKS_DEPS_RAID_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
@@ -610,19 +656,22 @@ def _build_traceability_matrix(
     requirements: list[Requirement], epics: list[Epic], stories: list[UserStory]
 ) -> TraceabilityMatrix:
     """Built deterministically, not via LLM (DESIGN.md §8 classifies traceability as
-    deterministic work): a requirement is linked to an epic/story when they share at least
-    one citation chunk_id, since neither Epic nor UserStory stores a separate
-    requirement_id link. This also avoids a 6th LLM call for pure data-joining.
+    deterministic work): joins on the explicit `grounding_requirement_ids` each epic/story
+    carries (exact requirement_id match), not on citation chunk_id overlap — a small model
+    reliably mangles chunk_ids when asked to reproduce them (see Epic.grounding_requirement_ids
+    docstring), which previously made this join silently match nothing for every requirement
+    in a real run. Copying a short REQ-XXX token is a task the same model gets right.
     """
     rows: list[TraceabilityRow] = []
     for req in requirements:
-        req_chunk_ids = {ref.chunk_id for ref in req.source_references}
         matched = False
         for epic in epics:
-            epic_chunk_ids = {ref.chunk_id for ref in epic.source_references}
-            if not (req_chunk_ids & epic_chunk_ids):
+            if req.requirement_id not in epic.grounding_requirement_ids:
                 continue
-            epic_stories = [s for s in stories if s.epic_id == epic.epic_id]
+            epic_stories = [
+                s for s in stories
+                if s.epic_id == epic.epic_id and req.requirement_id in s.grounding_requirement_ids
+            ]
             if not epic_stories:
                 rows.append(
                     TraceabilityRow(

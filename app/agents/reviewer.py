@@ -126,8 +126,16 @@ def _force_revision_on_structural_failure(
     found structural errors (dangling citation, circular dependency, duplicate ID, invalid
     parent ref), the plan cannot PASS no matter what the LLM judged — structural correctness
     is a Python-owned invariant, never left to agent judgement alone.
+
+    Always appends the validator's own findings to revision_instructions when validation
+    fails, even if the LLM's decision already happens to be REVISION_REQUIRED for unrelated
+    reasons — previously this short-circuited in that case (`report.decision ==
+    "REVISION_REQUIRED"` already true), so the Planning Agent's revision prompt and the
+    human at the final gate never actually saw the structural errors the validator caught
+    (found live: 15 DANGLING_CITATION errors were silently dropped this way, the plan still
+    reached final approval and export unchanged).
     """
-    if validation.is_valid or report.decision == "REVISION_REQUIRED":
+    if validation.is_valid:
         return report
     forced_issues = [
         ReviewerIssue(

@@ -51,7 +51,13 @@ def start_workflow(
 
 
 @router.get("/status", response_model=WorkflowRunRead)
-def workflow_status(project_id: str, session: Session = Depends(get_session)):
+def workflow_status(
+    project_id: str,
+    session: Session = Depends(get_session),
+    checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
+    session_factory: sessionmaker = Depends(get_sessionmaker),
+    vector_service: VectorService = Depends(get_vector_service),
+):
     _require_project(session, project_id)
     run = session.scalar(
         select(WorkflowRun)
@@ -60,7 +66,13 @@ def workflow_status(project_id: str, session: Session = Depends(get_session)):
     )
     if run is None:
         raise HTTPException(status_code=404, detail=f"No workflow run for project '{project_id}'")
-    return WorkflowRunRead.model_validate(run)
+
+    pending_gate = None
+    if run.status == STATUS_WAITING_FOR_HUMAN_INPUT:
+        pending_gate = engine.get_pending_gate_stage(
+            checkpointer, run.workflow_run_id, session_factory, vector_service
+        )
+    return WorkflowRunRead.model_validate(run).model_copy(update={"pending_gate": pending_gate})
 
 
 @router.get("/events", response_model=list[WorkflowEventRead])

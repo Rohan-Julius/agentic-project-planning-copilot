@@ -209,3 +209,65 @@ def test_approve_releases_the_clarification_gate(client):
     # uncaught. Mirrors test_clarification_approve_patch_releases_the_gate in
     # test_workflow_graph.py, which tolerates the same two outcomes for the same reason.
     assert body["status"] in ("WAITING_FOR_HUMAN_INPUT", "ERROR")
+
+
+def test_approve_clarifications_while_paused_at_final_gate_returns_409(client):
+    """Found live: the Supervisor's advisory recommendation can mislabel the
+    exhausted-revision edge case as WAIT_FOR_CLARIFICATIONS even though the run is actually
+    paused at the *final* gate (clarification_approved never resets once true). A user
+    misled by that label into clicking "Approve clarifications" must not silently resume the
+    final gate — that only set the already-true clarification_approved flag and left
+    final_approved unset, so the run just re-paused at final_gate, looking like an infinite
+    loop. The endpoint must recognize this isn't its gate and refuse.
+    """
+    project_id = _create_project(client)
+    session_factory = client.app.dependency_overrides[get_sessionmaker]()
+
+    workflow_run_id = "RUN-wrong-gate-test"
+    config = {
+        "configurable": {
+            "thread_id": workflow_run_id,
+            "session_factory": session_factory,
+            "vector_service": None,
+        },
+        "recursion_limit": 20,
+    }
+    graph = compile_graph(client.checkpointer)
+    seeded_state = {
+        "project_id": project_id,
+        "current_stage": "start",
+        "next_action": None,
+        "document_ids": [],
+        "requirement_ids": ["REQ-1"],
+        "unresolved_question_ids": [],
+        "requirement_analysis_attempts": 1,
+        "clarification_approved": True,
+        "plan_version_id": "ver_1",
+        "reviewer_decision": "REVISION_REQUIRED",
+        "reviewer_issue_ids": [],
+        "revision_count": 1,  # revision cap already used -> router sends this to final_gate
+        "final_approved": False,
+        "errors": [],
+        "workflow_events": [],
+    }
+    interrupted = graph.invoke(seeded_state, config=config)
+    assert "__interrupt__" in interrupted
+    assert interrupted["__interrupt__"][0].value["stage"] == "final_gate"
+
+    session = session_factory()
+    try:
+        session.add(
+            WorkflowRun(
+                workflow_run_id=workflow_run_id,
+                project_id=project_id,
+                status=STATUS_WAITING_FOR_HUMAN_INPUT,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.post(f"/projects/{project_id}/clarifications/approve")
+
+    assert response.status_code == 409
+    assert "final_gate" in response.json()["detail"]

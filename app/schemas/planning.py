@@ -9,7 +9,25 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import GroundedMixin, SourceReference
-from app.schemas.enums import DependencyType, ImpactLevel, Priority, TechnicalTaskCategory
+from app.schemas.enums import Classification, DependencyType, ImpactLevel, Priority, TechnicalTaskCategory
+
+
+class _DraftGrounding(BaseModel):
+    """Same shape as GroundedMixin but WITHOUT the SOURCE_BACKED-needs-citation validator.
+
+    Used only by EpicDraft/UserStoryDraft, whose source_references get deterministically
+    backfilled from grounding_requirement_ids after parsing (see Epic.grounding_requirement_ids
+    docstring) — enforcing citation-presence at LLM-output parse time is redundant for these
+    two now, and actively harmful: once the prompt told the model grounding_requirement_ids
+    was authoritative and source_references merely best-effort, the model stopped reliably
+    filling source_references at all, and GroundedMixin's parse-time check then failed EVERY
+    SOURCE_BACKED epic in the batch — a single bad epic used to fail alone, but this crashed
+    the whole Planning node before the backfill in _assign_epic_ids ever got a chance to run
+    (found live). The strict check still applies to the final Epic/UserStory, after backfill.
+    """
+
+    classification: Classification
+    source_references: list[SourceReference] = Field(default_factory=list)
 
 
 class ProjectSummary(BaseModel):
@@ -54,12 +72,23 @@ class Epic(GroundedMixin):
     priority: Priority
     dependencies: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    # Which approved requirement_id(s) this epic is grounded in (e.g. "REQ-003") — the
+    # authoritative link the deterministic traceability matrix joins on. Kept separate from
+    # `source_references`: a small model reliably fails to reproduce a chunk_id character
+    # for character (found live — every epic in a real run cited a truncated chunk_id that
+    # matched no real chunk, silently breaking the traceability matrix and failing the
+    # dangling-citation validator). Copying a short REQ-XXX token it already sees verbatim
+    # is a task the same model gets right; `_assign_epic_ids` uses this field to attach the
+    # real citation from the referenced requirement(s) instead of trusting the model's own
+    # copy of `source_references`.
+    grounding_requirement_ids: list[str] = Field(default_factory=list)
 
 
-class EpicDraft(GroundedMixin):
+class EpicDraft(_DraftGrounding):
     """LLM-facing epic shape for the Planning Agent's epics-generation call (DESIGN.md §0.2,
-    §8.3): identical to `Epic` except it has no `epic_id` — IDs are minted deterministically
-    by the agent's post-processing step after generation, never proposed by the model.
+    §8.3): identical to `Epic` except it has no `epic_id` (IDs are minted deterministically
+    after generation, never proposed by the model) and uses `_DraftGrounding` instead of
+    `GroundedMixin` — see that class's docstring for why the citation check is deferred.
     """
 
     title: str
@@ -69,6 +98,7 @@ class EpicDraft(GroundedMixin):
     priority: Priority
     dependencies: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    grounding_requirement_ids: list[str] = Field(default_factory=list)
 
 
 class PlanningSummaryScopeResult(BaseModel):
@@ -94,10 +124,11 @@ class AcceptanceCriterionDraft(BaseModel):
     then: str
 
 
-class UserStoryDraft(GroundedMixin):
+class UserStoryDraft(_DraftGrounding):
     """LLM-facing story shape (DESIGN.md §0.2, §8.3): identical to UserStory minus
     story_id and each AC's criterion_id. `epic_id` IS supplied by the model — it is a
-    reference to an already-minted Epic, not a new identity being proposed.
+    reference to an already-minted Epic, not a new identity being proposed. Uses
+    `_DraftGrounding` instead of `GroundedMixin` — see that class's docstring for why.
     """
 
     epic_id: str = Field(min_length=1)
@@ -111,6 +142,7 @@ class UserStoryDraft(GroundedMixin):
     assumptions: list[str] = Field(default_factory=list)
     suggested_story_points: int | None = Field(default=None, ge=0)
     confidence: float = Field(ge=0.0, le=1.0)
+    grounding_requirement_ids: list[str] = Field(default_factory=list)
 
 
 class PlanningStoriesResult(BaseModel):
@@ -141,6 +173,7 @@ class UserStory(GroundedMixin):
     assumptions: list[str] = Field(default_factory=list)
     suggested_story_points: int | None = Field(default=None, ge=0)
     confidence: float = Field(ge=0.0, le=1.0)
+    grounding_requirement_ids: list[str] = Field(default_factory=list)
 
 
 class TechnicalTask(BaseModel):

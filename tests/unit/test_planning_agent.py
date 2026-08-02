@@ -138,6 +138,7 @@ def _epics_result() -> PlanningEpicsResult:
                 priority="High",
                 classification="SOURCE_BACKED",
                 source_references=[SourceReference(**CITATION)],
+                grounding_requirement_ids=["REQ-1"],
             ),
             EpicDraft(
                 title="Payment Notifications",
@@ -198,6 +199,115 @@ def test_planning_agent_preserves_citation_from_requirement(session_factory):
     assert ref.document_name == CITATION["document_name"]
     assert ref.page_number == CITATION["page_number"]
     assert ref.section == CITATION["section"]
+
+
+def test_epic_draft_parses_with_source_backed_classification_and_no_citation():
+    """Found live: once the prompt told the model grounding_requirement_ids was authoritative
+    and source_references merely best-effort, the model stopped filling source_references in
+    at all — and GroundedMixin's parse-time "SOURCE_BACKED needs a citation" check then
+    rejected every single epic in the batch before Python's backfill (_assign_epic_ids) ever
+    ran, crashing the whole Planning node. EpicDraft must accept this shape; the citation
+    requirement is enforced later, on the final Epic, after backfill.
+    """
+    draft = EpicDraft(
+        title="Card Payments",
+        objective="Let customers pay by card",
+        business_value="Unlocks online revenue",
+        priority="High",
+        classification="SOURCE_BACKED",
+        source_references=[],
+        grounding_requirement_ids=["REQ-1"],
+    )
+    assert draft.source_references == []
+
+
+def test_user_story_draft_parses_with_source_backed_classification_and_no_citation():
+    """Same bug, same fix, for UserStoryDraft."""
+    draft = UserStoryDraft(
+        epic_id="EPIC-001",
+        title="Pay with card",
+        persona="Customer",
+        story_statement="As a customer, I want to pay by card, so that I can complete checkout.",
+        business_value="Enables revenue",
+        priority="High",
+        acceptance_criteria=[
+            AcceptanceCriterionDraft(given="a cart", when="I submit valid card details", then="the payment is charged")
+        ],
+        confidence=0.85,
+        classification="SOURCE_BACKED",
+        source_references=[],
+        grounding_requirement_ids=["REQ-1"],
+    )
+    assert draft.source_references == []
+
+
+def test_epic_source_references_backfilled_from_grounding_requirement_ids_even_if_llm_citation_wrong(
+    session_factory,
+):
+    """Found live: the Planning LLM reliably fails to reproduce a chunk_id verbatim (e.g.
+    citing 'CH-003' instead of the real 'doc_8cd1399029ed-CH-003'), which silently broke
+    every requirement's traceability-matrix link and tripped the dangling-citation validator
+    on every epic in a real run. grounding_requirement_ids is a short REQ-XXX token the same
+    model copies correctly, so Python uses it to attach the real citation instead of
+    trusting the model's own (here, deliberately wrong) source_references.
+    """
+    wrong_citation = {
+        "document_name": "requirements.pdf",
+        "page_number": 3,
+        "section": "Payments",
+        "chunk_id": "CH-003",  # missing the real "DOC-1-" prefix — exactly the live failure
+    }
+    bad_epics_result = PlanningEpicsResult(
+        epics=[
+            EpicDraft(
+                title="Card Payments",
+                objective="Let customers pay by card",
+                business_value="Unlocks online revenue",
+                priority="High",
+                classification="SOURCE_BACKED",
+                source_references=[SourceReference(**wrong_citation)],
+                grounding_requirement_ids=["REQ-1"],
+            )
+        ]
+    )
+
+    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
+        "app.agents.planning.run_agent",
+        side_effect=[_summary_scope_result(), bad_epics_result],
+    ):
+        from app.agents.planning import run_planning_agent_summary_scope_epics
+
+        _, _, epics = run_planning_agent_summary_scope_epics(
+            "PRJ-PLAN", "RUN-1", session_factory=session_factory
+        )
+
+    assert epics[0].source_references[0].chunk_id == CITATION["chunk_id"]
+    assert epics[0].source_references[0].chunk_id != "CH-003"
+
+
+def test_assign_epic_ids_still_rejects_source_backed_epic_with_no_resolvable_grounding():
+    """The relaxed EpicDraft parsing (no citation check) must not become a silent grounding
+    bypass: if grounding_requirement_ids doesn't resolve to any real requirement AND the model
+    also left source_references empty, the final Epic construction must still raise — this is
+    the strict-grounding invariant (spec §12.4/§12.5), just enforced one step later than
+    before (after backfill instead of at LLM-output parse time).
+    """
+    from pydantic import ValidationError
+
+    from app.agents.planning import _assign_epic_ids
+
+    ungrounded_draft = EpicDraft(
+        title="Ghost Epic",
+        objective="Not grounded in anything real",
+        business_value="None",
+        priority="Low",
+        classification="SOURCE_BACKED",
+        source_references=[],
+        grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
+    )
+
+    with pytest.raises(ValidationError):
+        _assign_epic_ids([ungrounded_draft], [_requirement()])
 
 
 def test_planning_agent_prompt_includes_only_answered_clarifications(session_factory):
@@ -296,7 +406,7 @@ def _requirement() -> Requirement:
 def _epics() -> list:
     from app.agents.planning import _assign_epic_ids
 
-    return _assign_epic_ids(_epics_result().epics)
+    return _assign_epic_ids(_epics_result().epics, [_requirement()])
 
 
 def _stories_draft_result() -> PlanningStoriesResult:
@@ -320,6 +430,7 @@ def _stories_draft_result() -> PlanningStoriesResult:
                 confidence=0.85,
                 classification="SOURCE_BACKED",
                 source_references=[SourceReference(**CITATION)],
+                grounding_requirement_ids=["REQ-1"],
             )
         ]
     )
@@ -380,7 +491,7 @@ def test_generate_stories_prompt_includes_valid_epic_ids_and_format_rules():
 def _story():
     from app.agents.planning import _assign_story_and_ac_ids
 
-    return _assign_story_and_ac_ids(_stories_draft_result().stories)[0]
+    return _assign_story_and_ac_ids(_stories_draft_result().stories, [_requirement()])[0]
 
 
 def _tasks_deps_raid_draft_result() -> PlanningTasksDepsRaidResult:

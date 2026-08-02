@@ -28,3 +28,6 @@ Thumbs.db
 # Planning / superpowers scratch (never committed with code, per project rule)
 .claude/
 superpowers/
+
+CLAUDE.md
+problem_statement.md

@@ -140,3 +140,63 @@ def test_plan_approve_releases_the_final_gate_and_reaches_export(client):
     assert body["workflow_run_id"] == workflow_run_id
     assert body["final_approved"] is True
     assert body["status"] == "COMPLETED"
+
+
+def test_plan_approve_while_paused_at_clarification_gate_returns_409(client):
+    """Mirrors test_approve_clarifications_while_paused_at_final_gate_returns_409 in
+    test_clarification_api.py — /plan/approve must not blindly set final_approved just
+    because the generic WAITING_FOR_HUMAN_INPUT status matches; if the run is actually
+    paused at the clarification gate, approving the plan here would skip clarification
+    review entirely.
+    """
+    project_id = _create_project(client)
+    session_factory = client.app.dependency_overrides[get_sessionmaker]()
+
+    workflow_run_id = "RUN-wrong-gate-plan-test"
+    config = {
+        "configurable": {
+            "thread_id": workflow_run_id,
+            "session_factory": session_factory,
+            "vector_service": None,
+        },
+        "recursion_limit": 20,
+    }
+    graph = compile_graph(client.checkpointer)
+    seeded_state = {
+        "project_id": project_id,
+        "current_stage": "start",
+        "next_action": None,
+        "document_ids": [],
+        "requirement_ids": ["REQ-1"],
+        "unresolved_question_ids": ["CQ-1"],
+        "requirement_analysis_attempts": 1,
+        "clarification_approved": False,
+        "plan_version_id": None,
+        "reviewer_decision": None,
+        "reviewer_issue_ids": [],
+        "revision_count": 0,
+        "final_approved": False,
+        "errors": [],
+        "workflow_events": [],
+    }
+    interrupted = graph.invoke(seeded_state, config=config)
+    assert "__interrupt__" in interrupted
+    assert interrupted["__interrupt__"][0].value["stage"] == "clarification_gate"
+
+    session = session_factory()
+    try:
+        session.add(
+            WorkflowRun(
+                workflow_run_id=workflow_run_id,
+                project_id=project_id,
+                status=STATUS_WAITING_FOR_HUMAN_INPUT,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.post(f"/projects/{project_id}/plan/approve")
+
+    assert response.status_code == 409
+    assert "clarification_gate" in response.json()["detail"]

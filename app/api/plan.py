@@ -16,6 +16,7 @@ from app.services.vector_service import VectorService, get_vector_service
 from app.workflow import engine
 from app.workflow.checkpointer import get_checkpointer
 from app.workflow.engine import STATUS_WAITING_FOR_HUMAN_INPUT
+from app.workflow.routes import NODE_FINAL_GATE
 
 router = APIRouter(prefix="/projects/{project_id}/plan", tags=["plan"])
 
@@ -68,6 +69,18 @@ def approve_plan(
             detail=(
                 f"Workflow run '{run.workflow_run_id}' is not waiting for human input "
                 f"(status: {run.status})"
+            ),
+        )
+
+    pending_gate = engine.get_pending_gate_stage(
+        checkpointer, run.workflow_run_id, session_factory, vector_service
+    )
+    if pending_gate != NODE_FINAL_GATE:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Workflow run '{run.workflow_run_id}' is not waiting at the final approval "
+                f"gate (currently paused at: {pending_gate!r}) — nothing to approve here."
             ),
         )
 
