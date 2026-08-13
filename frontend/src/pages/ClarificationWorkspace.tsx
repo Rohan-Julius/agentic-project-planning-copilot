@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
+import HoverButtonContent from '../components/HoverButtonContent'
 import type { ClarificationQuestion, Project } from '../types'
 
 const STATUS_OPTIONS: ClarificationQuestion['status'][] = [
@@ -101,7 +102,7 @@ export default function ClarificationWorkspace() {
         <form className="form" onSubmit={handleSaveAnswers}>
           {questions.length === 0 && (
             <p className="muted">
-              No clarification questions were raised — the requirement analysis found nothing
+              No clarification questions were raised. The requirement analysis found nothing
               ambiguous. Planning still waits for your explicit approval before it begins (§11);
               approve below to continue.
             </p>
@@ -127,7 +128,7 @@ export default function ClarificationWorkspace() {
                   <p className="muted">
                     Source: {q.source_reference.document_name}
                     {q.source_reference.page_number ? `, p.${q.source_reference.page_number}` : ''}
-                    {q.source_reference.section ? ` — ${q.source_reference.section}` : ''}
+                    {q.source_reference.section ? `, ${q.source_reference.section}` : ''}
                   </p>
                 )}
                 <div className="field">
@@ -168,8 +169,15 @@ export default function ClarificationWorkspace() {
                 {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save answers'}
               </button>
             )}
-            <button className="button" type="button" disabled={approving} onClick={handleApprove}>
-              {approving ? 'Approving…' : 'Approve clarifications'}
+            <button
+              className="button-hover"
+              type="button"
+              disabled={approving}
+              onClick={handleApprove}
+            >
+              <HoverButtonContent>
+                {approving ? 'Approving…' : 'Approve clarifications'}
+              </HoverButtonContent>
             </button>
           </div>
         </form>

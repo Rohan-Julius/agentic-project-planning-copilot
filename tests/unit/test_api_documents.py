@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 
-def _create_project(client) -> str:
-    response = client.post("/projects", json={"name": "Leave Management"})
+def _create_project(client, name: str = "Leave Management") -> str:
+    response = client.post("/projects", json={"name": name})
     return response.json()["project_id"]
 
 
@@ -85,3 +85,70 @@ def test_delete_document(client):
     response = client.delete(f"/projects/{project_id}/documents/{document_id}")
     assert response.status_code == 204
     assert client.get(f"/projects/{project_id}/documents").json() == []
+
+
+def test_get_document_text_returns_extracted_blocks(client):
+    """§16.3 "viewing extracted text" — re-parsed on demand from the stored file."""
+    project_id = _create_project(client)
+    upload = client.post(
+        f"/projects/{project_id}/documents",
+        files={"file": ("notes.txt", b"Users can log in with email and password.", "text/plain")},
+    )
+    document_id = upload.json()["document_id"]
+
+    response = client.get(f"/projects/{project_id}/documents/{document_id}/text")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["document_id"] == document_id
+    assert len(body["blocks"]) == 1
+    assert body["blocks"][0]["text"] == "Users can log in with email and password."
+
+
+def test_get_document_text_returns_404_for_unknown_document(client):
+    project_id = _create_project(client)
+    response = client.get(f"/projects/{project_id}/documents/does-not-exist/text")
+    assert response.status_code == 404
+
+
+def test_get_document_text_returns_404_for_unknown_project(client):
+    response = client.get("/projects/does-not-exist/documents/doc_1/text")
+    assert response.status_code == 404
+
+
+def test_get_document_text_is_project_isolated(client):
+    """A document_id that's real, but belongs to a different project, must 404 — not leak
+    across projects (§12.3, §20.4).
+    """
+    project_a = _create_project(client, name="Project A")
+    project_b = _create_project(client, name="Project B")
+    upload = client.post(
+        f"/projects/{project_a}/documents",
+        files={"file": ("a.txt", b"secret", "text/plain")},
+    )
+    document_id = upload.json()["document_id"]
+
+    response = client.get(f"/projects/{project_b}/documents/{document_id}/text")
+
+    assert response.status_code == 404
+
+
+def test_get_document_chunks_returns_empty_before_indexing(client):
+    """§16.3 "viewing chunks" — not-yet-indexed is a legitimate empty state, not an error."""
+    project_id = _create_project(client)
+    upload = client.post(
+        f"/projects/{project_id}/documents",
+        files={"file": ("a.txt", b"a", "text/plain")},
+    )
+    document_id = upload.json()["document_id"]
+
+    response = client.get(f"/projects/{project_id}/documents/{document_id}/chunks")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_document_chunks_returns_404_for_unknown_document(client):
+    project_id = _create_project(client)
+    response = client.get(f"/projects/{project_id}/documents/does-not-exist/chunks")
+    assert response.status_code == 404

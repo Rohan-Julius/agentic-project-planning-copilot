@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Planning Copilot</title>
+    <!-- Applies a stored theme choice before first paint, so a manual light/dark pick
+         (src/utils/theme.ts) doesn't flash the other theme for a frame on load. Absent a
+         stored choice, no attribute is set here and prefers-color-scheme in index.css
+         governs, same as before this existed. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme')
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored)
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

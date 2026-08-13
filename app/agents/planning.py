@@ -49,6 +49,8 @@ from app.tools.project_tools import (
     save_planning_artifacts,
 )
 from app.tools.retrieval_tools import search_company_standards
+from app.workflow.events import log_tool_call
+from app.workflow.routes import NODE_PLANNING
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -221,6 +223,7 @@ def run_planning_agent_summary_scope_epics(
     session_factory: "Callable[[], Session] | sessionmaker | None" = None,
     vector_service: "VectorService | None" = None,
     revision_instructions: "list[ReviewerIssue] | None" = None,
+    stage: str = NODE_PLANNING,
 ) -> tuple[ProjectSummary, Scope, list[Epic]]:
     """Execute the first two calls of the Planning Agent's multi-call generation sequence
     (DESIGN.md §8.3): project summary + scope, then epics grounded in that scope.
@@ -234,6 +237,9 @@ def run_planning_agent_summary_scope_epics(
         workflow_run_id: for audit trail (§21)
         session_factory: SQLAlchemy session factory (injected for tests; uses default if None)
         vector_service: Qdrant service (injected for tests; uses default singleton if None)
+        stage: workflow stage to attribute logged tool calls to — NODE_PLANNING by default,
+            but the plan-revision node (graph.py) passes NODE_PLAN_REVISION so the execution
+            log reflects which pass actually made each call, not just "planning" always.
 
     Returns:
         (ProjectSummary, Scope, list[Epic]) — Epic IDs are assigned deterministically
@@ -242,15 +248,29 @@ def run_planning_agent_summary_scope_epics(
     Raises:
         AgentError: if Ollama returns invalid JSON twice for either call (§20.1)
     """
+    def _log_tool(tool: str) -> None:
+        log_tool_call(
+            session_factory,
+            workflow_run_id=workflow_run_id,
+            project_id=project_id,
+            agent="Planning",
+            stage=stage,
+            tool=tool,
+        )
+
     project_info = get_project_information(project_id, session_factory=session_factory)
+    _log_tool("get_project_information")
     requirements = get_requirements(project_id, session_factory=session_factory)
+    _log_tool("get_requirements")
     clarifications = get_clarification_answers(project_id, session_factory=session_factory)
+    _log_tool("get_clarification_answers")
     standards = search_company_standards(
         "project scope definition of ready definition of done",
         category=None,
         top_k=3,
         vector_service=vector_service,
     )
+    _log_tool("search_company_standards")
 
     answered_count = len([q for q in clarifications if q.status == "ANSWERED"])
     logger.info(
@@ -707,6 +727,7 @@ def run_planning_agent(
     session_factory: "Callable[[], Session] | sessionmaker | None" = None,
     vector_service: "VectorService | None" = None,
     revision_instructions: "list[ReviewerIssue] | None" = None,
+    stage: str = NODE_PLANNING,
 ) -> ProjectPlan:
     """Execute the full Planning Agent generation sequence (DESIGN.md §8.3): summary+scope
     → epics → stories+AC → tasks+deps+RAID → sprint plan, then a deterministic traceability
@@ -720,21 +741,38 @@ def run_planning_agent(
 
     revision_instructions (spec §7.4 "Revise-once"): when set, threaded into every
     generation call's prompt so a revision run addresses the Reviewer's actual findings.
+
+    stage: see run_planning_agent_summary_scope_epics — passed through unchanged so a
+        revision run's tool-call events are attributed to NODE_PLAN_REVISION, not NODE_PLANNING.
     """
+    def _log_tool(tool: str) -> None:
+        log_tool_call(
+            session_factory,
+            workflow_run_id=workflow_run_id,
+            project_id=project_id,
+            agent="Planning",
+            stage=stage,
+            tool=tool,
+        )
+
     summary, scope, epics = run_planning_agent_summary_scope_epics(
         project_id, workflow_run_id, session_factory=session_factory, vector_service=vector_service,
-        revision_instructions=revision_instructions,
+        revision_instructions=revision_instructions, stage=stage,
     )
 
     project_info = get_project_information(project_id, session_factory=session_factory)
+    _log_tool("get_project_information")
     requirements = get_requirements(project_id, session_factory=session_factory)
+    _log_tool("get_requirements")
     clarifications = get_clarification_answers(project_id, session_factory=session_factory)
+    _log_tool("get_clarification_answers")
     standards = search_company_standards(
         "project scope definition of ready definition of done",
         category=None,
         top_k=3,
         vector_service=vector_service,
     )
+    _log_tool("search_company_standards")
 
     stories = _generate_stories(
         project_info, requirements, clarifications, standards, epics,
@@ -759,6 +797,7 @@ def run_planning_agent(
     )
 
     save_planning_artifacts(project_id, plan, session_factory=session_factory)
+    _log_tool("save_planning_artifacts")
 
     logger.info(
         f"[Planning] project {project_id}: plan complete — {len(epics)} epics, "

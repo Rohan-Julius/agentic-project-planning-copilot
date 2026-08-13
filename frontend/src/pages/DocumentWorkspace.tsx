@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { IndexResult, Project, ProjectDocument, WorkflowRun } from '../types'
+import FileUpload from '../components/FileUpload'
+import ShinyButton from '../components/ShinyButton'
+import type {
+  DocumentChunk,
+  IndexResult,
+  ParsedDocument,
+  Project,
+  ProjectDocument,
+  WorkflowRun,
+} from '../types'
+import { runStatusLabel } from '../utils/workflowLabels'
+
+type DetailView = 'text' | 'chunks'
 
 const ACTIVE_RUN_STATUSES = ['RUNNING', 'WAITING_FOR_HUMAN_INPUT']
 
@@ -13,7 +25,7 @@ export default function DocumentWorkspace() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [uploadType, setUploadType] = useState('')
   const [uploading, setUploading] = useState(false)
 
@@ -26,8 +38,19 @@ export default function DocumentWorkspace() {
   const [activeRun, setActiveRun] = useState<WorkflowRun | null>(null)
 
   const [indexing, setIndexing] = useState(false)
+  const [forceIndexing, setForceIndexing] = useState(false)
   const [indexResult, setIndexResult] = useState<IndexResult | null>(null)
-  const [hasIndexed, setHasIndexed] = useState(false)
+  // Derived from the real per-document status the backend already tracks
+  // (indexing_service.INDEXED_STATUS), not separate client-side state — that way it's
+  // correct on first load even if these documents were indexed in an earlier session,
+  // and never needs a redundant "click Index to unlock analysis" step.
+  const hasIndexed = documents.some((doc) => doc.status === 'INDEXED')
+
+  const [expandedDoc, setExpandedDoc] = useState<{ id: string; view: DetailView } | null>(null)
+  const [textCache, setTextCache] = useState<Record<string, ParsedDocument>>({})
+  const [chunksCache, setChunksCache] = useState<Record<string, DocumentChunk[]>>({})
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   function loadDocuments(id: string) {
     return api.get<ProjectDocument[]>(`/projects/${id}/documents`).then(setDocuments)
@@ -52,24 +75,33 @@ export default function DocumentWorkspace() {
 
   async function handleUpload(event: React.FormEvent) {
     event.preventDefault()
-    if (!projectId || !file) return
+    if (!projectId || files.length === 0) return
     setError(null)
     setUploading(true)
-    const form = new FormData()
-    form.append('file', file)
-    try {
-      await api.postForm(
-        `/projects/${projectId}/documents?document_type=${encodeURIComponent(uploadType)}`,
-        form,
-      )
-      setFile(null)
-      setUploadType('')
-      await loadDocuments(projectId)
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (err as Error).message)
-    } finally {
-      setUploading(false)
+    // The backend accepts one file per request, so a multi-file drop uploads sequentially.
+    // One bad file (wrong format, duplicate name, etc.) shouldn't block the rest of the
+    // batch — collect failures and keep going, then surface them together at the end.
+    const failures: string[] = []
+    for (const uploadFile of files) {
+      const form = new FormData()
+      form.append('file', uploadFile)
+      try {
+        await api.postForm(
+          `/projects/${projectId}/documents?document_type=${encodeURIComponent(uploadType)}`,
+          form,
+        )
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : (err as Error).message
+        failures.push(`${uploadFile.name}: ${message}`)
+      }
     }
+    setFiles([])
+    setUploadType('')
+    await loadDocuments(projectId)
+    if (failures.length > 0) {
+      setError(`Some files failed to upload: ${failures.join('; ')}`)
+    }
+    setUploading(false)
   }
 
   async function handleTextSubmit(event: React.FormEvent) {
@@ -99,27 +131,71 @@ export default function DocumentWorkspace() {
     setError(null)
     try {
       await api.delete(`/projects/${projectId}/documents/${documentId}`)
+      if (expandedDoc?.id === documentId) setExpandedDoc(null)
       await loadDocuments(projectId)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     }
   }
 
-  async function handleIndex() {
+  async function runIndex(force: boolean) {
     if (!projectId) return
     setError(null)
-    setIndexing(true)
+    if (force) setForceIndexing(true)
+    else setIndexing(true)
     try {
-      const result = await api.post<IndexResult>(`/projects/${projectId}/index`, {})
+      const result = await api.post<IndexResult>(`/projects/${projectId}/index?force=${force}`, {})
       setIndexResult(result)
-      // Indexing is idempotent server-side: a repeat call on already-indexed documents
-      // correctly returns chunk_count 0 (nothing new to do), not a failure — so "no
-      // per-document errors" is the right success signal here, not chunk_count itself.
-      if (Object.keys(result.errors).length === 0) setHasIndexed(true)
+      // Refresh so each document's real status (INDEXED, INDEX_ERROR, ...) is up to date —
+      // hasIndexed is derived from this list, and the status column shown per document
+      // would otherwise stay stale ("UPLOADED") even after a successful index.
+      await loadDocuments(projectId)
+      // A (forced) re-index rewrites chunk text — any chunk lists already fetched for this
+      // panel are stale now, so drop the cache rather than keep showing outdated content.
+      if (force) setChunksCache({})
     } catch (err) {
       setError(err instanceof ApiError ? err.message : (err as Error).message)
     } finally {
-      setIndexing(false)
+      if (force) setForceIndexing(false)
+      else setIndexing(false)
+    }
+  }
+
+  function handleIndex() {
+    return runIndex(false)
+  }
+
+  function handleForceReindex() {
+    return runIndex(true)
+  }
+
+  async function toggleDetail(documentId: string, view: DetailView) {
+    if (!projectId) return
+    if (expandedDoc?.id === documentId && expandedDoc.view === view) {
+      setExpandedDoc(null)
+      return
+    }
+    setExpandedDoc({ id: documentId, view })
+    setDetailError(null)
+    const alreadyCached = view === 'text' ? documentId in textCache : documentId in chunksCache
+    if (alreadyCached) return
+    setDetailLoading(true)
+    try {
+      if (view === 'text') {
+        const parsed = await api.get<ParsedDocument>(
+          `/projects/${projectId}/documents/${documentId}/text`,
+        )
+        setTextCache((prev) => ({ ...prev, [documentId]: parsed }))
+      } else {
+        const chunks = await api.get<DocumentChunk[]>(
+          `/projects/${projectId}/documents/${documentId}/chunks`,
+        )
+        setChunksCache((prev) => ({ ...prev, [documentId]: chunks }))
+      }
+    } catch (err) {
+      setDetailError(err instanceof ApiError ? err.message : (err as Error).message)
+    } finally {
+      setDetailLoading(false)
     }
   }
 
@@ -145,7 +221,9 @@ export default function DocumentWorkspace() {
       <header className="page-header">
         <div>
           <h1>{project?.name ?? 'Documents'}</h1>
-          <p className="muted">Upload requirement documents or paste text (PDF, DOCX, TXT, Markdown).</p>
+          <p className="muted">
+            Upload requirement documents (PDF, DOCX, TXT, or Markdown) or paste text directly.
+          </p>
         </div>
         <Link className="back-link" to="/">
           ← Back to projects
@@ -163,40 +241,73 @@ export default function DocumentWorkspace() {
               <p>No documents yet. Upload a file or add text below.</p>
             ) : (
               <ul className="document-list">
-                {documents.map((doc) => (
-                  <li key={doc.document_id} className="document-row">
-                    <div className="document-info">
-                      <span className="document-name">{doc.document_name}</span>
-                      <span className="document-meta">
-                        v{doc.document_version} · {doc.document_type || 'uncategorized'} · {doc.status}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="button-danger"
-                      onClick={() => handleDelete(doc.document_id)}
-                    >
-                      Delete
-                    </button>
-                  </li>
-                ))}
+                {documents.map((doc) => {
+                  const isExpanded = expandedDoc?.id === doc.document_id
+                  const view = isExpanded ? expandedDoc.view : null
+                  return (
+                    <li key={doc.document_id} className="document-item">
+                      <div className="document-row">
+                        <div className="document-info">
+                          <span className="document-name">{doc.document_name}</span>
+                          <span className="document-meta">
+                            v{doc.document_version} · {doc.document_type || 'uncategorized'} ·{' '}
+                            {doc.status}
+                          </span>
+                        </div>
+                        <div className="document-actions">
+                          <button
+                            type="button"
+                            className={`button-ghost${view === 'text' ? ' is-active' : ''}`}
+                            onClick={() => toggleDetail(doc.document_id, 'text')}
+                          >
+                            View text
+                          </button>
+                          <button
+                            type="button"
+                            className={`button-ghost${view === 'chunks' ? ' is-active' : ''}`}
+                            onClick={() => toggleDetail(doc.document_id, 'chunks')}
+                          >
+                            View chunks
+                          </button>
+                          <button
+                            type="button"
+                            className="button-danger"
+                            onClick={() => handleDelete(doc.document_id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="document-detail">
+                          {detailLoading && <p className="muted">Loading…</p>}
+                          {detailError && <p className="error">{detailError}</p>}
+                          {!detailLoading && !detailError && view === 'text' && (
+                            <DocumentTextDetail parsed={textCache[doc.document_id]} />
+                          )}
+                          {!detailLoading && !detailError && view === 'chunks' && (
+                            <DocumentChunksDetail chunks={chunksCache[doc.document_id]} />
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>
 
           <section className="panel">
-            <h2>Upload a file</h2>
+            <h2>Upload files</h2>
             <form className="form" onSubmit={handleUpload}>
-              <div className="field">
-                <label htmlFor="file">File (PDF, DOCX, TXT, Markdown)</label>
-                <input
-                  id="file"
-                  type="file"
-                  accept=".pdf,.docx,.txt,.md"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  required
-                />
-              </div>
+              <FileUpload
+                files={files}
+                onFilesChange={setFiles}
+                accept=".pdf,.docx,.txt,.md"
+                hint="PDF, DOCX, TXT, or Markdown"
+                disabled={uploading}
+              />
               <div className="field">
                 <label htmlFor="upload-type">Category</label>
                 <input
@@ -207,8 +318,12 @@ export default function DocumentWorkspace() {
                 />
               </div>
               <div className="form-actions">
-                <button className="button" type="submit" disabled={!file || uploading}>
-                  {uploading ? 'Uploading…' : 'Upload'}
+                <button className="button" type="submit" disabled={files.length === 0 || uploading}>
+                  {uploading
+                    ? 'Uploading…'
+                    : files.length > 1
+                      ? `Upload ${files.length} files`
+                      : 'Upload'}
                 </button>
               </div>
             </form>
@@ -261,18 +376,26 @@ export default function DocumentWorkspace() {
           <section className="panel">
             <h2>Index documents</h2>
             <p className="muted">
-              Documents must be indexed (chunked, embedded, and stored for retrieval) before
-              requirement analysis can find anything in them. Re-run this after uploading new
-              documents.
+              Documents must be indexed before requirement analysis can use them. "Index
+              documents" only processes new files; use "Force re-index all" to rebuild
+              everything from scratch.
             </p>
             <div className="form-actions">
               <button
                 className="button"
                 type="button"
                 onClick={handleIndex}
-                disabled={indexing || documents.length === 0}
+                disabled={indexing || forceIndexing || documents.length === 0}
               >
                 {indexing ? 'Indexing…' : 'Index documents'}
+              </button>
+              <button
+                className="button-ghost"
+                type="button"
+                onClick={handleForceReindex}
+                disabled={indexing || forceIndexing || documents.length === 0}
+              >
+                {forceIndexing ? 'Re-indexing…' : 'Force re-index all'}
               </button>
             </div>
             {documents.length === 0 && (
@@ -295,17 +418,27 @@ export default function DocumentWorkspace() {
               requirements and generate clarification questions.
             </p>
             <div className="form-actions">
-              <button
-                className="button"
-                type="button"
-                onClick={handleStartWorkflow}
-                disabled={starting || !hasIndexed || !!activeRun}
-              >
-                {starting ? 'Running…' : 'Run requirement analysis'}
-              </button>
+              {activeRun ? (
+                // A run is already active — this button is no longer the actionable one, so
+                // it goes static instead of shimmering while disabled (which would look
+                // actionable when it isn't). The shiny "make it happen" treatment doesn't
+                // disappear, though — it moves to "View agent execution" below, since
+                // that's now the button that actually leads to watching results happen.
+                <button className="button-ghost" type="button" disabled>
+                  Run requirement analysis
+                </button>
+              ) : (
+                <ShinyButton
+                  type="button"
+                  onClick={handleStartWorkflow}
+                  disabled={starting || !hasIndexed}
+                >
+                  {starting ? 'Running…' : 'Run requirement analysis'}
+                </ShinyButton>
+              )}
               {activeRun && (
-                <Link className="button" to={`/projects/${projectId}/workflow`}>
-                  View agent execution →
+                <Link className="button-shiny" to={`/projects/${projectId}/workflow`}>
+                  <span>View agent execution</span>
                 </Link>
               )}
             </div>
@@ -314,13 +447,54 @@ export default function DocumentWorkspace() {
             )}
             {activeRun && (
               <p className="muted">
-                A workflow run is already {activeRun.status} for this project — wait for it to
-                reach a human gate or finish before starting another.
+                A workflow run is already {runStatusLabel(activeRun.status).toLowerCase()} for
+                this project. Wait for it to reach a human gate or finish before starting
+                another.
               </p>
             )}
           </section>
         </>
       )}
     </div>
+  )
+}
+
+function DocumentTextDetail({ parsed }: { parsed: ParsedDocument | undefined }) {
+  if (!parsed) return null
+  if (parsed.blocks.length === 0) return <p className="muted">No extractable text.</p>
+  return (
+    <>
+      {parsed.blocks.map((block, i) => (
+        <div key={i} className="document-detail-entry">
+          <p className="document-detail-entry-meta">
+            {block.heading_level ? `Heading ${block.heading_level}` : 'Body'}
+            {block.page_number ? ` · p.${block.page_number}` : ''}
+            {block.section_hierarchy_path ? ` · ${block.section_hierarchy_path}` : ''}
+          </p>
+          <p className="document-detail-entry-text">{block.text}</p>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function DocumentChunksDetail({ chunks }: { chunks: DocumentChunk[] | undefined }) {
+  if (!chunks) return null
+  if (chunks.length === 0) {
+    return <p className="muted">Not indexed yet. Run indexing below to generate chunks.</p>
+  }
+  return (
+    <>
+      {chunks.map((chunk) => (
+        <div key={chunk.chunk_id} className="document-detail-entry">
+          <p className="document-detail-entry-meta">
+            {chunk.chunk_id}
+            {chunk.page_number ? ` · p.${chunk.page_number}` : ''}
+            {chunk.section ? ` · ${chunk.section}` : ''}
+          </p>
+          <p className="document-detail-entry-text">{chunk.text}</p>
+        </div>
+      ))}
+    </>
   )
 }

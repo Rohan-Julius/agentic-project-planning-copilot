@@ -31,6 +31,44 @@ export interface ProjectDocument {
   status: string
 }
 
+/** A document in the shared `organizational_knowledge` collection (app/api/standards.py) —
+ * unlike ProjectDocument, never scoped to one project (`project_id` is always null here). */
+export interface OrganizationalDocument {
+  document_id: string
+  project_id: string | null
+  document_name: string
+  document_type: string
+  source_type: string
+  document_version: string
+  status: string
+}
+
+export interface ParsedBlock {
+  text: string
+  page_number: number | null
+  heading_level: number | null
+  section_hierarchy_path: string
+}
+
+export interface ParsedDocument {
+  document_id: string
+  blocks: ParsedBlock[]
+}
+
+export interface DocumentChunk {
+  chunk_id: string
+  project_id: string | null
+  document_id: string
+  document_name: string
+  document_type: string
+  source_type: string
+  document_version: string
+  text: string
+  page_number: number | null
+  section: string
+  section_hierarchy_path: string
+}
+
 export interface SourceReference {
   document_name: string
   page_number: number | null
@@ -72,6 +110,19 @@ export type Classification =
   | 'CLARIFICATION_BACKED'
   | 'ASSUMPTION'
   | 'AI_RECOMMENDATION'
+
+export interface Requirement {
+  requirement_id: string
+  project_id: string
+  title: string
+  description: string
+  category: string
+  classification: Classification
+  confidence: number
+  source_references: SourceReference[]
+  workflow_run_id: string | null
+  created_at: string
+}
 
 export interface ProjectSummary {
   business_problem: string

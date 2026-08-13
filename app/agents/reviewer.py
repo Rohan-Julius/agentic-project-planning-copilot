@@ -20,6 +20,8 @@ from app.schemas.reviewer import ReviewerIssue, ReviewerReport
 from app.schemas.validation import TraceabilityResult, ValidationResult
 from app.tools.project_tools import get_requirements
 from app.tools.validation_tools import check_traceability, load_current_plan, validate_project_plan
+from app.workflow.events import log_tool_call
+from app.workflow.routes import NODE_REVIEWER
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -179,13 +181,27 @@ def run_reviewer_agent(
         ValueError: if no plan has been generated yet for this project.
         AgentError: if Ollama returns invalid JSON twice (§20.1).
     """
+    def _log_tool(tool: str) -> None:
+        log_tool_call(
+            session_factory,
+            workflow_run_id=workflow_run_id,
+            project_id=project_id,
+            agent="Reviewer",
+            stage=NODE_REVIEWER,
+            tool=tool,
+        )
+
     plan = load_current_plan(project_id, session_factory=session_factory)
+    _log_tool("load_current_plan")
     if plan is None:
         raise ValueError(f"No plan generated yet for project {project_id!r} — cannot review")
 
     requirements = get_requirements(project_id, session_factory=session_factory)
+    _log_tool("get_requirements")
     validation = validate_project_plan(project_id, session_factory=session_factory)
+    _log_tool("validate_project_plan")
     traceability = check_traceability(project_id, session_factory=session_factory)
+    _log_tool("check_traceability")
 
     logger.info(
         f"[Reviewer] project {project_id}, run {workflow_run_id}: validator is_valid="

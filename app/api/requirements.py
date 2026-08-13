@@ -1,4 +1,4 @@
-"""Requirements endpoints (spec §18, §9.4).
+"""Requirements endpoints (spec §16.6, §18, §9.4).
 
 Exposes extracted requirements from the Requirement Analyst Agent.
 Filters by project_id for isolation (spec §12.3, §20.4).
@@ -16,12 +16,32 @@ from app.schemas.requirement import RequirementRead
 router = APIRouter(prefix="/projects/{project_id}/requirements", tags=["requirements"])
 
 
+def _to_read(record: RequirementRecord) -> RequirementRead:
+    """`description` and `source_references` live inside `payload_json` (the full original
+    `Requirement` dump), not as their own columns — `.get(..., default)` so a payload that
+    predates a field being added here still reads back instead of 500ing.
+    """
+    payload = record.payload_json or {}
+    return RequirementRead(
+        requirement_id=record.requirement_id,
+        project_id=record.project_id,
+        title=record.title,
+        description=payload.get("description", ""),
+        category=record.category,
+        classification=record.classification,
+        confidence=record.confidence,
+        source_references=payload.get("source_references", []),
+        workflow_run_id=record.workflow_run_id,
+        created_at=record.created_at,
+    )
+
+
 @router.get("", response_model=list[RequirementRead])
 def get_requirements(
     project_id: str,
     session: Session = Depends(get_session),
 ) -> list[RequirementRead]:
-    """Retrieve all requirements for a project (spec §9.4, §18).
+    """Retrieve all requirements for a project (spec §16.6, §9.4, §18).
 
     Filters by project_id to prevent cross-project data leakage (§12.3, §20.4).
     Returns all requirements extracted by the Requirement Analyst Agent for this project,
@@ -40,4 +60,4 @@ def get_requirements(
         .order_by(RequirementRecord.created_at)
     ).all()
 
-    return [RequirementRead.model_validate(req) for req in requirements]
+    return [_to_read(req) for req in requirements]

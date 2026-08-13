@@ -1,23 +1,68 @@
+/* Color tokens, three layers:
+   1. `:root` — unconditional default (dark). Also what wins whenever `data-theme="dark"`
+      is set (see the `:not([data-theme])` guard below) — deliberately not given its own
+      duplicate `:root[data-theme="dark"]` block. An earlier version of this file tried
+      that via specificity (an attribute selector beating a bare `:root` inside the media
+      query), which is correct by the cascade spec, but depends on trusting that a
+      production CSS minifier's automatic prefers-color-scheme optimization preserves that
+      exact specificity relationship after restructuring the rules — not something worth
+      betting on. `:not()` is plain selector matching, not a specificity tie, so there's
+      nothing for a minifier to get subtly wrong (see the shine-text bug earlier in this
+      file for why "should be fine" isn't good enough here).
+   2. `@media (prefers-color-scheme: light)` below, guarded by `:not([data-theme])` — OS
+      preference, only when no explicit choice has been made.
+   3. `:root[data-theme="light"]` (src/utils/theme.ts) — explicit user toggle, always wins
+      over the OS setting since it's a plain unconditional rule outside any media query.
+      This one *does* need its own copy of the light tokens (can't reuse the media-query
+      block — it must also apply when the OS itself prefers dark) — keep both in sync. */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* Color — dark is the default mode */
+  --bg: #0c0b09;
+  --surface: #17140f;
+  --surface-raised: #201c15;
+  --border: #2e2a20;
+  --text: #c7bfae;
+  --text-h: #f5f0e4;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --gold: #e9b968;
+  --gold-dim: rgba(233, 185, 104, 0.12);
+  --gold-border: rgba(233, 185, 104, 0.45);
+  --gold-shine: #f3dda3;
+  /* .shine-text's peak color — same as --gold here (already high-contrast in dark mode;
+     see the light-mode block for why light needs its own value instead). */
+  --shine-accent: #e9b968;
+  /* .aurora-text's deep stop — gives that gradient tonal range (deep bronze -> gold ->
+     bright gold-shine) without leaving the gold family. */
+  --gold-deep: #b8873c;
+  /* .aurora-text's two extra flow stops — warm analogous hues (amber -> coral -> rose),
+     not confined to the flat gold family like every other token on this page. Chosen to
+     stay in the same warm register as --gold rather than reaching for the reference's
+     cool blue/purple, which would clash with everything else in this palette. */
+  --aurora-coral: #e8804a;
+  --aurora-rose: #d1567a;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  --source: #7fb88a;
+  --source-bg: rgba(127, 184, 138, 0.12);
+  --clarification: #6fa8d8;
+  --clarification-bg: rgba(111, 168, 216, 0.12);
+  --assumption: #d8965a;
+  --assumption-bg: rgba(216, 150, 90, 0.12);
+  --recommendation: #a98fd1;
+  --recommendation-bg: rgba(169, 143, 209, 0.12);
+  --danger: #e2685a;
+  --danger-bg: rgba(226, 104, 90, 0.1);
+
+  --shadow: rgba(0, 0, 0, 0.4) 0 10px 24px -8px;
+
+  /* Type — three faces, each coding a different kind of content:
+     serif = quoted source-document text, sans = UI chrome, mono = machine-tracked data */
+  --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --serif: 'IBM Plex Serif', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  font: 16px/150% var(--sans);
+  letter-spacing: 0.1px;
+  color-scheme: dark light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -26,39 +71,96 @@
   -moz-osx-font-smoothing: grayscale;
 
   @media (max-width: 1024px) {
-    font-size: 16px;
+    font-size: 15px;
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f6f2e8;
+    --surface: #ffffff;
+    --surface-raised: #efe9db;
+    /* Was #ddd4c0 (1.32:1 against --bg) — border/dot-fill elements (card outlines, the
+       Dashboard pipeline tracker's pending dots, .agent-node, .log-status-dot,
+       .button-hover's resting border) were reading as invisible against the page. This
+       clears 3.5:1+ against both --bg and --surface — measured, not eyeballed, see the
+       light-mode contrast pass this token needed. Dark mode's --border is unchanged; it
+       measures similarly low in absolute terms but wasn't reported as a problem there. */
+    --border: #847f73;
+    --text: #4a4436;
+    --text-h: #211c13;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+    /* Darkened from the dark-mode hues so text set in each color still clears
+       4.5:1 against its own translucent -bg tint on the paper background
+       (measured, not eyeballed — see Task 6 accessibility spot-check). */
+    --gold: #805e2a;
+    --gold-dim: rgba(128, 94, 42, 0.1);
+    /* Was 0.4 alpha (1.78:1 against --bg) — .button's own border was nearly as invisible
+       as the page-level --border problem above. 0.8 alpha clears 3.5:1+. */
+    --gold-border: rgba(128, 94, 42, 0.8);
+    --gold-shine: #d1993a;
+    /* .shine-text's animated peak color — kept separate from --gold/--gold-shine (used by
+       buttons) so this can be tuned for the shimmer's own internal contrast without
+       affecting either of those. Dark mode uses --gold here (already high-contrast); light
+       mode needs its own value — plain --gold's internal contrast against --text is only
+       1.64:1 (the sweep barely differs from itself), --gold-shine's value gets 3.84:1. */
+    --shine-accent: #d1993a;
+    --gold-deep: #5c4319;
+    --aurora-coral: #9c4a1f;
+    --aurora-rose: #8a2f52;
+
+    --source: #177231;
+    --source-bg: rgba(23, 114, 49, 0.1);
+    --clarification: #085ec4;
+    --clarification-bg: rgba(8, 94, 196, 0.1);
+    --assumption: #825700;
+    --assumption-bg: rgba(130, 87, 0, 0.1);
+    --recommendation: #754bc6;
+    --recommendation-bg: rgba(117, 75, 198, 0.1);
+    --danger: #b8283a;
+    --danger-bg: rgba(184, 40, 58, 0.08);
+
+    --shadow: rgba(0, 0, 0, 0.08) 0 10px 24px -8px;
+    color-scheme: light dark;
   }
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+/* Explicit light choice (src/utils/theme.ts) — must win even when the OS prefers dark, so
+   this can't live inside the media query above. Keep in sync with it; see the comment on
+   the :root block near the top of this file. */
+:root[data-theme='light'] {
+  --bg: #f6f2e8;
+  --surface: #ffffff;
+  --surface-raised: #efe9db;
+  --border: #847f73;
+  --text: #4a4436;
+  --text-h: #211c13;
+
+  --gold: #805e2a;
+  --gold-dim: rgba(128, 94, 42, 0.1);
+  --gold-border: rgba(128, 94, 42, 0.8);
+  --gold-shine: #d1993a;
+  --shine-accent: #d1993a;
+  --gold-deep: #5c4319;
+  --aurora-coral: #9c4a1f;
+  --aurora-rose: #8a2f52;
+
+  --source: #177231;
+  --source-bg: rgba(23, 114, 49, 0.1);
+  --clarification: #085ec4;
+  --clarification-bg: rgba(8, 94, 196, 0.1);
+  --assumption: #825700;
+  --assumption-bg: rgba(130, 87, 0, 0.1);
+  --recommendation: #754bc6;
+  --recommendation-bg: rgba(117, 75, 198, 0.1);
+  --danger: #b8283a;
+  --danger-bg: rgba(184, 40, 58, 0.08);
+
+  --shadow: rgba(0, 0, 0, 0.08) 0 10px 24px -8px;
+  color-scheme: light dark;
+}
+
+* {
   box-sizing: border-box;
 }
 
@@ -66,48 +168,316 @@ body {
   margin: 0;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.topbar {
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.topbar-inner {
+  /* Three-column grid, not flex + space-between — a "1fr auto 1fr" track puts the middle
+     column (the pill nav) at the true geometric center of the bar regardless of how wide
+     the brand text or the theme toggle are, which flex space-between can't do on its own
+     (that only pushes two groups to the edges, it doesn't independently center a third
+     element between them).
+
+     No max-width/margin:auto here (unlike .page) — the topbar is meant to use the FULL
+     viewport width, with the brand and toggle pinned to the true left/right edges of the
+     window (via justify-self on the children below), not to the edges of a centered
+     content column that leaves visible gutters on wide screens. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 14px 32px;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 8px;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.topbar-brand:visited {
   color: var(--text-h);
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+.topbar-name {
+  /* Bold display treatment for the brand mark specifically — everywhere else in this
+     file, --sans stays at 400/500 (see the tri-typeface system at the top of this file).
+     Needs the actual 700-weight font file imported (main.tsx) since font-synthesis: none
+     (set on :root) means the browser won't fake a bold from a lighter weight. */
+  font-family: var(--sans);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+
+/* Pill nav — see components/PillNav.tsx for why this reimplements a reference component's
+   look without its gsap dependency. Chrome (logo circle, pill-list background) stays quiet
+   (--surface), matching this app's restraint around gold — gold only appears on the actual
+   interactive moment (the fill), not as a large static background. */
+
+.pill-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-nav-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.pill-nav-logo img {
+  /* logo-mark.png is a transparent cutout of logo.jpeg (which has an opaque white square
+     background — visible as a "square in a circle" artifact once placed inside this round
+     badge on a dark background) — see the generation note in components/PillNav.tsx. */
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
+
+/* Reference behavior: gsap spins the logo 360° on hover. A one-shot CSS animation (not a
+   :hover-triggered transition) gets the same "spins forward, doesn't visibly unspin" read
+   without the dependency — a transition would reverse itself on mouse-leave instead. */
+@keyframes pill-nav-logo-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
+
+.pill-nav-logo:is(:hover, :focus-visible) img {
+  animation: pill-nav-logo-spin 0.5s linear;
+}
+
+.pill-nav-list {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.pill-nav-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 16px;
+  border-radius: 999px;
+  overflow: hidden;
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.pill-nav-item:visited {
+  color: var(--text);
+}
+
+/* The reference computes an exact circle size per pill via gsap + getBoundingClientRect so
+   the fill precisely covers each pill regardless of its text length. Fixed-oversized +
+   clipped by the pill's own overflow:hidden gets the same "fill rises and covers" read
+   without per-element JS measurement. */
+.pill-nav-fill {
+  position: absolute;
+  left: 50%;
+  bottom: -30%;
+  width: 220%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--gold);
+  transform: translateX(-50%) scale(0);
+  transition: transform 0.35s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.pill-nav-item:is(:hover, :focus-visible) .pill-nav-fill,
+.pill-nav-item.is-active .pill-nav-fill {
+  transform: translateX(-50%) scale(1);
+}
+
+/* Same two-layer label-swap mechanic as .button-hover-base/.button-hover-reveal — reused
+   deliberately for consistency rather than a third hover treatment in the same app. */
+.pill-nav-label-stack {
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+}
+
+.pill-nav-label {
+  grid-area: 1 / 1;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.pill-nav-label-hover {
+  color: var(--text-h);
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.pill-nav-item:is(:hover, :focus-visible) .pill-nav-label:not(.pill-nav-label-hover),
+.pill-nav-item.is-active .pill-nav-label:not(.pill-nav-label-hover) {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.pill-nav-item:is(:hover, :focus-visible) .pill-nav-label-hover,
+.pill-nav-item.is-active .pill-nav-label-hover {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.theme-toggle:hover {
+  color: var(--gold);
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+}
+
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 1024px) {
+  .topbar-inner {
+    padding: 12px 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Three columns get cramped at phone widths — drop to two rows instead: brand + toggle
+     on top, the pill nav centered on its own row below. */
+  .topbar-inner {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'brand toggle' 'nav nav';
+    row-gap: 10px;
+  }
+
+  .topbar-brand {
+    grid-area: brand;
+  }
+
+  .pill-nav {
+    grid-area: nav;
+    justify-self: center;
+  }
+
+  .theme-toggle {
+    grid-area: toggle;
+  }
+}
+
+h1,
 h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
+  font-family: var(--sans);
+  font-weight: 500;
+  color: var(--text-h);
+  margin: 0;
+}
+
+h1 {
+  font-size: 40px;
+  letter-spacing: -0.6px;
   @media (max-width: 1024px) {
-    font-size: 20px;
+    font-size: 30px;
   }
 }
+
+h2 {
+  font-size: 22px;
+  line-height: 128%;
+  letter-spacing: -0.1px;
+  @media (max-width: 1024px) {
+    font-size: 19px;
+  }
+}
+
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+a {
+  color: var(--gold);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* The browser's default `a:visited` (element + pseudo-class, specificity 0,1,1) beats a
+   plain class selector like `.button` (0,1,0) — every link-rendering class below needs its
+   own `:visited` restating the same color it already uses, or a once-clicked link silently
+   reverts to the UA stylesheet's default purple/maroon regardless of theme. Not a Photon
+   reference, just an unstyled browser default that had higher specificity than we did.
+   Each one is placed before that class's own :hover rule so hovering a visited link still
+   wins (same specificity as :visited, later in source order). */
+a:visited {
+  color: var(--gold);
+}
+
+/* Visible keyboard focus everywhere interactive */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+.button:focus-visible,
+.button-danger:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 /* App shell (Day 3+ screens) */
@@ -115,13 +485,20 @@ code {
 .page {
   text-align: left;
   padding: 32px;
-  max-width: 760px;
+  max-width: 1120px;
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
   @media (max-width: 1024px) {
     padding: 20px;
   }
+}
+
+/* Dashboard only — every other .page (Document workspace, Planning, Reviewer, Export, ...)
+   stays at the narrower default above. A compound selector (0,2,0), not a same-specificity
+   tie with .page (0,1,0), so it wins unconditionally regardless of source order. */
+.page.page-wide {
+  max-width: 1280px;
 }
 
 .page-header {
@@ -133,8 +510,16 @@ code {
 }
 
 .page-header h1 {
-  margin: 0 0 4px;
+  margin: 0 0 10px;
   font-size: 32px;
+}
+
+/* Dashboard's own title specifically — a compound selector (higher specificity than the
+   plain rule above, not a tie) so this can't be affected by where it sits in the file,
+   unlike the shine-text cascade-order bug earlier in this file. Every other page's h1
+   (project names, "Documents", "Reviewer findings", ...) is untouched. */
+.page-header h1.dashboard-title {
+  font-size: 22px;
 }
 
 .muted {
@@ -143,7 +528,7 @@ code {
 }
 
 .error {
-  color: #d1293d;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -154,8 +539,12 @@ code {
   white-space: nowrap;
 }
 
+.back-link:visited {
+  color: var(--text);
+}
+
 .back-link:hover {
-  color: var(--accent);
+  color: var(--gold);
 }
 
 .button,
@@ -165,19 +554,23 @@ code {
   justify-content: center;
   font: inherit;
   font-size: 15px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--accent-border);
-  color: var(--accent);
-  background: var(--accent-bg);
+  padding: 8px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--gold-border);
+  color: var(--gold);
+  background: var(--gold-dim);
   text-decoration: none;
   cursor: pointer;
   transition: border-color 0.2s;
 }
 
+.button:visited {
+  color: var(--gold);
+}
+
 .button:hover,
 .button-danger:hover {
-  border-color: var(--accent);
+  border-color: var(--gold);
 }
 
 .button:disabled {
@@ -186,24 +579,28 @@ code {
 }
 
 .button-danger {
-  color: #d1293d;
-  border-color: rgba(209, 41, 61, 0.4);
-  background: rgba(209, 41, 61, 0.08);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: var(--danger-bg);
   font-size: 14px;
-  padding: 6px 12px;
+  padding: 6px 14px;
+}
+
+.button-danger:visited {
+  color: var(--danger);
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
   max-width: 480px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .field label {
@@ -218,7 +615,7 @@ code {
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text-h);
 }
 
@@ -228,47 +625,86 @@ code {
 
 .form-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-start;
-}
-
-.project-list,
-.document-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.project-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-}
-
-.project-card a {
-  color: var(--text-h);
-  text-decoration: none;
-}
-
-.project-meta {
-  display: flex;
-  gap: 12px;
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--text);
+  gap: 14px;
 }
 
 .panel {
   border-top: 1px solid var(--border);
-  padding-top: 24px;
-  margin-top: 24px;
+  padding-top: 32px;
+  margin-top: 32px;
 }
 
 .panel h2 {
   font-size: 18px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+/* The recurring "heading, then a description paragraph, then buttons/a list/a form" shape
+   used across almost every panel (Index documents, Requirement analysis, page headers'
+   own descriptions, ...) had no space between the paragraph and whatever follows it —
+   .muted/p reset to margin: 0 globally, so a description ran straight into the button row
+   beneath it. Scoped to direct children only so it doesn't touch paragraphs nested inside
+   .form/.document-detail/etc. that already manage their own spacing. */
+.panel > p {
+  margin-bottom: 16px;
+}
+
+/* Intro line that sets up a demo/widget directly beneath it (e.g. the Terminal on the About
+   page's "Run it locally" section) — heavier than .muted so it reads as guidance leading
+   into the thing below, not an incidental caption. */
+.section-subtitle {
+  max-width: 640px;
+  margin: 0 0 20px;
+  color: var(--text-h);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.button-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.button-ghost:visited {
+  color: var(--text);
+}
+
+.button-ghost:hover {
+  color: var(--gold);
+  border-color: var(--border);
+}
+
+.button-ghost.is-active {
+  color: var(--gold);
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+}
+
+.button-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.document-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .document-row {
@@ -276,8 +712,6 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
   padding: 12px 16px;
 }
 
@@ -285,6 +719,7 @@ code {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
 .document-name {
@@ -297,12 +732,68 @@ code {
   color: var(--text);
 }
 
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.document-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.document-detail {
+  border-top: 1px solid var(--border);
+  padding: 14px 16px;
+  background: var(--surface);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.document-detail-entry {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.document-detail-entry:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.document-detail-entry:first-child {
+  padding-top: 0;
+}
+
+.document-detail-entry-meta {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.document-detail-entry-text {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 145%;
+  color: var(--text-h);
+  white-space: pre-wrap;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
+  font-family: var(--mono);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
+  letter-spacing: 0.03em;
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -310,27 +801,27 @@ code {
 }
 
 .badge-source_backed {
-  color: #1a7f37;
-  border-color: rgba(26, 127, 55, 0.4);
-  background: rgba(26, 127, 55, 0.1);
+  color: var(--source);
+  border-color: color-mix(in srgb, var(--source) 55%, transparent);
+  background: var(--source-bg);
 }
 
 .badge-clarification_backed {
-  color: #0969da;
-  border-color: rgba(9, 105, 218, 0.4);
-  background: rgba(9, 105, 218, 0.1);
+  color: var(--clarification);
+  border-color: color-mix(in srgb, var(--clarification) 55%, transparent);
+  background: var(--clarification-bg);
 }
 
 .badge-assumption {
-  color: #9a6700;
-  border-color: rgba(154, 103, 0, 0.4);
-  background: rgba(154, 103, 0, 0.1);
+  color: var(--assumption);
+  border-color: color-mix(in srgb, var(--assumption) 55%, transparent);
+  background: var(--assumption-bg);
 }
 
 .badge-ai_recommendation {
-  color: var(--accent);
-  border-color: var(--accent-border);
-  background: var(--accent-bg);
+  color: var(--recommendation);
+  border-color: color-mix(in srgb, var(--recommendation) 55%, transparent);
+  background: var(--recommendation-bg);
 }
 
 .artifact-card {
@@ -361,30 +852,1506 @@ code {
   text-align: left;
 }
 
-.event-list {
+/* Motion — restrained, purposeful, reduced-motion-aware. Used by Dashboard's
+   pipeline tracker (Task 4) and Agent Execution's log/gate/agent nodes (Task 5). */
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes log-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Dashboard — project ledger + pipeline tracker (Task 4) */
+
+.ledger {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.event-row {
+.ledger-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.ledger-row:first-child {
+  border-top: 1px solid var(--border);
+}
+
+.ledger-link {
+  display: block;
+  padding: 18px 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ledger-link:hover {
+  background: var(--surface);
+}
+
+.ledger-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ledger-methodology {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.ledger-desc {
+  margin: 4px 0 12px;
+}
+
+.pipeline-tracker {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pipeline-stage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.pipeline-stage:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+.pipeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  flex: none;
+}
+
+.pipeline-stage.is-done .pipeline-dot {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.pipeline-stage.is-done:not(:last-child)::after {
+  background: var(--gold);
+}
+
+.pipeline-stage.is-current {
+  color: var(--text-h);
+}
+
+.pipeline-stage.is-current .pipeline-dot {
+  border-color: var(--gold);
+  background: var(--gold-dim);
+}
+
+.pipeline-flag {
+  font-family: var(--mono);
+  font-size: 12px;
+  margin: 0;
+}
+
+.pipeline-flag-working {
+  color: var(--gold);
+}
+
+.pipeline-flag-working::before {
+  /* A trailing space inside `content` isn't a reliable gap — browsers can collapse it at
+     the edge of the generated inline-block box. An explicit margin always renders. */
+  content: '●';
+  display: inline-block;
+  margin-right: 6px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.pipeline-flag-error {
+  color: var(--danger);
+}
+
+.pipeline-flag-stalled {
+  color: var(--assumption);
+}
+
+.pipeline-flag-stalled::before {
+  content: '●';
+  display: inline-block;
+  margin-right: 6px;
+}
+
+@media (max-width: 480px) {
+  .pipeline-label {
+    display: none;
+  }
+
+  .pipeline-stage:not(:last-child)::after {
+    margin: 0 3px;
+  }
+}
+
+/* Agent Execution — agent row, flight-recorder log, gate seal (Task 5) */
+
+.agent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.agent-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  flex: none;
+}
+
+.agent-node.is-active {
+  border-color: var(--gold-border);
+  color: var(--text-h);
+  background: var(--gold-dim);
+}
+
+.agent-node.is-active .agent-dot {
+  background: var(--gold);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* An agent that has completed at least one SUCCESS event this run — quiet solid dot, no
+   pulse, distinct from both "hasn't run yet" (border-colored dot) and "running now"
+   (pulsing). .is-active wins visually if an agent is both done-before and active again
+   (e.g. Planning re-running during a revision cycle) since it comes second in the CSS. */
+.agent-node.is-done .agent-dot {
+  background: var(--gold);
+}
+
+.gate-seal {
+  border: 1px solid var(--gold-border);
+  border-radius: 10px;
+  background: var(--gold-dim);
+  padding: 20px 24px;
+  margin: 24px 0;
+  animation: fade-in 0.4s ease both;
+}
+
+.gate-seal-eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.gate-seal-desc {
+  margin: 0 0 14px;
+  color: var(--text-h);
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 2px solid var(--border);
+  padding-left: 16px;
+}
+
+.log-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  animation: log-in 0.3s ease both;
+}
+
+.log-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--border);
+  flex: none;
+}
+
+.log-status-dot.log-status-in_progress {
+  background: var(--gold);
+}
+
+.log-status-dot.log-status-success {
+  background: var(--source);
+}
+
+.log-status-dot.log-status-error {
+  background: var(--danger);
+}
+
+/* Pulse only the row that's genuinely happening right now (event === latestEvent &&
+   isRunning), not every historical row whose *recorded* status happens to be IN_PROGRESS —
+   an audit log is append-only, so a superseded "started" row keeps that status forever even
+   after a later row logs its completion. Without this, every such row pulses forever,
+   which is what made two agents look simultaneously active. */
+.log-status-dot.is-live {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.log-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  min-width: 84px;
+}
+
+.log-agent {
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.log-action {
+  /* A readable sentence ("Extracting requirements from your documents"), not a short
+     data-like token — sans, not mono (see the tri-typeface system in this file's header:
+     mono is for machine-tracked data, not natural-language summaries). */
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.log-meta {
+  flex-basis: 100%;
+  margin-left: 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.log-row-error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+@media (max-width: 480px) {
+  .log-row {
+    gap: 2px 8px;
+  }
+
+  .log-time {
+    min-width: auto;
+  }
+}
+
+/* File upload — drag & drop / browse multi-file picker (Document workspace). A self-contained
+   card (own border/background), not just the dashed dropzone alone — title + accepted-format
+   subtitle sit above the dropzone, all centered, matching the reference widget this was built
+   from (see FileUpload.tsx). */
+
+.file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.file-upload-card-header {
+  text-align: center;
+}
+
+.file-upload-card-title {
+  margin: 0 0 3px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.file-upload-card-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.file-upload-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 18px;
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.file-upload-dropzone:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.file-upload-dropzone.is-active {
+  border-color: var(--gold);
+  background: var(--gold-dim);
+}
+
+.file-upload-dropzone.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.file-upload-input {
+  display: none;
+}
+
+.file-upload-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--text);
+}
+
+.file-upload-dropzone.is-active .file-upload-icon {
+  color: var(--gold);
+}
+
+.file-upload-copy {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.file-upload-browse {
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-upload-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.file-upload-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  transition: background 0.2s;
+}
+
+.file-upload-item:hover {
+  background: var(--surface-raised);
+}
+
+.file-upload-item-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.file-upload-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 8px 12px;
+  background: var(--surface-raised);
+  color: var(--gold);
+}
+
+.file-upload-item-icon-svg {
+  width: 15px;
+  height: 15px;
+}
+
+.file-upload-item-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
-.event-row-error {
-  border-color: rgba(209, 41, 61, 0.4);
-  background: rgba(209, 41, 61, 0.05);
-}
-
-.event-agent {
+.file-upload-item-name {
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-upload-item-size {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.file-upload-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background 0.2s;
+}
+
+.file-upload-remove:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.file-upload-remove-svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Interactive-hover button — forward-progression actions ("leads to next steps"): new
+   project, create project, gate-advance links, approve actions, view-execution/export
+   links. Base state reads as a quiet outlined button; on hover/focus a dot expands to a
+   full gold fill while the label slides out and a second label+arrow layer slides in —
+   the motion itself reads as "committing to the next step". Our shape (12px) and
+   colorway (gold fill, dark text on gold), not the reference's rounded-full/primary-blue. */
+
+.button-hover {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-hover:visited {
+  color: var(--text-h);
+}
+
+.button-hover:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-hover-base {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.button-hover-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  flex: none;
+  transition: transform 0.35s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.button-hover-base span {
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.button-hover:is(:hover, :focus-visible) .button-hover-dot {
+  transform: scale(80);
+}
+
+.button-hover:is(:hover, :focus-visible) .button-hover-base span {
+  transform: translateX(12px);
+  opacity: 0;
+}
+
+.button-hover-reveal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-h);
+  transform: translateX(12px);
+  opacity: 0;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.button-hover:is(:hover, :focus-visible) .button-hover-reveal {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.button-hover-arrow {
+  width: 16px;
+  height: 16px;
+}
+
+/* Shiny button — reserved for the one moment the AI pipeline actually produces something
+   ("Run requirement analysis"). Deliberately used nowhere else: this effect only means
+   something if it's rare. Adapted from the reference's conic-gradient shimmer: our shape
+   (12px, not a pill), our gold as the shimmer hue, our IBM Plex Sans (self-hosted; the
+   reference imports Inter from a Google Fonts CDN, which this app never does — see
+   CLAUDE.md "runs entirely locally"). @property-driven angle animation degrades gracefully
+   to a static gradient border on browsers without @property support (e.g. older Firefox)
+   — never broken, just less animated. */
+
+@property --gradient-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@property --gradient-angle-offset {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@property --gradient-percent {
+  syntax: '<percentage>';
+  initial-value: 5%;
+  inherits: false;
+}
+
+@property --gradient-shine {
+  syntax: '<color>';
+  /* Can't be var(--gold) — @property's initial-value must be a literal (CSS spec
+     restriction, hit once already, see the git history on this block). `.button-shiny`
+     now sets --gradient-shine explicitly in its own resting-state rule, so this literal is
+     just the pre-first-paint/no-JS fallback, not something either theme actually renders. */
+  initial-value: #e9b968;
+  inherits: false;
+}
+
+.button-shiny {
+  --shiny-highlight: var(--gold);
+  --shiny-highlight-subtle: var(--gold-shine);
+  --animation: gradient-angle linear infinite;
+  --duration: 3s;
+  --shadow-size: 2px;
+  --transition: 800ms cubic-bezier(0.25, 1, 0.5, 1);
+  /* @property's initial-value can't reference a var() (CSS spec restriction — see the
+     shine-text/@property comment further down), so --gradient-shine's fallback before
+     anything else sets it is a hardcoded literal, always the dark-mode gold. Setting it
+     explicitly here means the resting (non-hover) border gradient always uses the current
+     theme's gold instead of silently falling back to that hardcoded dark-mode value in
+     light mode. */
+  --gradient-shine: var(--gold);
+
+  isolation: isolate;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  cursor: pointer;
+  outline-offset: 4px;
+  padding: 12px 24px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--text-h);
+  text-decoration: none;
+  background:
+    linear-gradient(var(--bg), var(--bg)) padding-box,
+    conic-gradient(
+        from calc(var(--gradient-angle) - var(--gradient-angle-offset)),
+        transparent,
+        var(--shiny-highlight) var(--gradient-percent),
+        var(--gradient-shine) calc(var(--gradient-percent) * 2),
+        var(--shiny-highlight) calc(var(--gradient-percent) * 3),
+        transparent calc(var(--gradient-percent) * 4)
+      )
+      border-box;
+  box-shadow: inset 0 0 0 1px var(--surface);
+  transition: var(--transition);
+  transition-property: --gradient-angle-offset, --gradient-percent, --gradient-shine;
+}
+
+.button-shiny:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  /* The gradient border/shine is meant to read as "this is the eligible, actionable
+     step" — dimming it via opacity alone still leaves it animating underneath, which
+     looks like a stray highlight on a control the user can't actually use. Flatten the
+     background instead of the conic-gradient trick, and give the border back its own
+     visible color now that nothing is painting it via background-box. */
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.button-shiny:visited {
+  color: var(--text-h);
+}
+
+.button-shiny::before,
+.button-shiny::after,
+.button-shiny span::before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-start: 50%;
+  translate: -50% -50%;
+  z-index: -1;
+}
+
+.button-shiny:active {
+  translate: 0 1px;
+}
+
+.button-shiny::before {
+  --size: calc(100% - var(--shadow-size) * 3);
+  --position: 2px;
+  --space: calc(var(--position) * 2);
+  width: var(--size);
+  height: var(--size);
+  background: radial-gradient(
+      circle at var(--position) var(--position),
+      var(--text-h) calc(var(--position) / 4),
+      transparent 0
+    )
+    padding-box;
+  background-size: var(--space) var(--space);
+  background-repeat: space;
+  mask-image: conic-gradient(
+    from calc(var(--gradient-angle) + 45deg),
+    black,
+    transparent 10% 90%,
+    black
+  );
+  border-radius: inherit;
+  opacity: 0.3;
+  z-index: -1;
+}
+
+.button-shiny::after {
+  --animation: shimmer linear infinite;
+  width: 100%;
+  aspect-ratio: 1;
+  background: linear-gradient(-50deg, transparent, var(--shiny-highlight), transparent);
+  mask-image: radial-gradient(circle at bottom, transparent 40%, black);
+  opacity: 0.5;
+}
+
+.button-shiny span {
+  z-index: 1;
+}
+
+.button-shiny span::before {
+  --size: calc(100% + 1rem);
+  width: var(--size);
+  height: var(--size);
+  box-shadow: inset 0 -1ex 2rem 4px var(--shiny-highlight);
+  opacity: 0;
+  transition: opacity var(--transition);
+  animation: calc(var(--duration) * 1.5) breathe linear infinite;
+}
+
+.button-shiny,
+.button-shiny::before,
+.button-shiny::after {
+  animation:
+    var(--animation) var(--duration),
+    var(--animation) calc(var(--duration) / 0.4) reverse paused;
+  animation-composition: add;
+}
+
+.button-shiny:is(:hover, :focus-visible) {
+  --gradient-percent: 20%;
+  --gradient-angle-offset: 95deg;
+  --gradient-shine: var(--shiny-highlight-subtle);
+}
+
+.button-shiny:is(:hover, :focus-visible),
+.button-shiny:is(:hover, :focus-visible)::before,
+.button-shiny:is(:hover, :focus-visible)::after {
+  animation-play-state: running;
+}
+
+.button-shiny:is(:hover, :focus-visible) span::before {
+  opacity: 1;
+}
+
+/* Disabled must win over :hover/:focus-visible above — same specificity, so this only wins
+   because it's declared later. A disabled button still matches :hover on mouse-over (disabled
+   only blocks click/focus, not :hover), so without this a stray mouse pass could re-trigger
+   the shine on a control the user can't actually use. */
+.button-shiny:disabled,
+.button-shiny:disabled::before,
+.button-shiny:disabled::after {
+  animation: none;
+}
+
+.button-shiny:disabled::before,
+.button-shiny:disabled::after,
+.button-shiny:disabled span::before {
+  content: none;
+}
+
+@keyframes gradient-angle {
+  to {
+    --gradient-angle: 360deg;
+  }
+}
+
+@keyframes shimmer {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes breathe {
+  from,
+  to {
+    scale: 1;
+  }
+  50% {
+    scale: 1.2;
+  }
+}
+
+/* Shine text — a modifier class applied alongside whatever element it decorates (e.g.
+   `.log-action.shine-text`). Kept at the very end of this file, deliberately: it's always
+   combined with another single-class selector (equal specificity), and CSS resolves that
+   tie by source order — a component rule like `.log-action { color: var(--text) }`
+   defined *after* this block would silently win and make the gradient-clip invisible
+   (this happened once already; don't move this block back up). Marks the live "current
+   activity" text while the workflow is actively running; reverts to plain solid text once
+   the run leaves an actively-progressing state — motion should mean "happening right
+   now", not linger once it isn't. */
+.shine-text {
+  background-image: linear-gradient(110deg, var(--text) 35%, var(--shine-accent) 50%, var(--text) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine-sweep 2.2s linear infinite;
+}
+
+@keyframes shine-sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A gradient-clip frozen mid-sweep by the global reduced-motion rule could land on a
+     low-contrast segment — fall back to plain solid text instead of a frozen gradient. */
+  .shine-text {
+    animation: none;
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: var(--text-h);
+  }
+}
+
+/* File format cards + export preview — Export screen. See components/FileFormatCard.tsx for
+   why this reimplements a reference Tailwind/shadcn component's look with plain CSS instead. */
+
+.file-format-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 36px;
+  margin-top: 14px;
+}
+
+.file-format-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.file-format-card:hover {
+  background: var(--gold-dim);
+}
+
+.file-format-card:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Recurring bug in this codebase: the browser's default a:visited (specificity 0,1,1) beats
+   a plain class like .file-format-card (0,1,0) — restate the resting color explicitly. Only
+   the zip tile is ever an <a> (see FileFormatCard.tsx), but this covers it either way. */
+.file-format-card:visited {
+  color: var(--text-h);
+}
+
+.file-format-card-inner {
+  position: relative;
+  display: inline-block;
+}
+
+.file-format-sheet {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 74px;
+  height: 94px;
+  padding: 13px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.file-format-badge {
+  position: absolute;
+  right: -10px;
+  bottom: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: #fff;
+}
+
+/* Fixed format-identity colors, not theme tokens — deliberately don't shift with the
+   light/dark toggle, same as a real file-type icon set wouldn't. Verified 4.5:1+ contrast
+   against white at these exact values. */
+.file-format-badge-json {
+  background: #a16207;
+}
+
+.file-format-badge-markdown {
+  background: #3b5bdb;
+}
+
+.file-format-badge-csv {
+  background: #0f766e;
+}
+
+.file-format-badge-zip {
+  background: #7c3aed;
+}
+
+.file-format-label {
+  font-size: 13px;
+  color: var(--text);
+  text-align: center;
+  max-width: 140px;
+}
+
+.file-format-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.file-format-line {
+  display: block;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--text);
+  opacity: 0.18;
+}
+
+.file-format-line-w2 {
+  width: 60%;
+}
+
+.file-format-line-w3 {
+  width: 85%;
+}
+
+.file-format-brace {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+  opacity: 0.45;
+}
+
+.file-format-heading {
+  display: block;
+  height: 4px;
+  width: 45%;
+  border-radius: 999px;
+  background: var(--gold);
+  opacity: 0.6;
+  margin-bottom: 1px;
+}
+
+.file-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.file-format-cell {
+  height: 7px;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0.15;
+}
+
+.file-format-dots {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.file-format-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+/* Export preview modal — a native <dialog> (see ExportPreviewModal.tsx for why: free focus
+   trap + Escape-to-close + backdrop, no dependency needed). */
+
+.export-preview-dialog {
+  /* Wider than a plain-text preview would need — the markdown/spreadsheet views below hold
+     real headings, tables, and multi-column grids that need the room to read as documents,
+     not a cramped text box. */
+  width: min(880px, 92vw);
+  max-height: min(82vh, 720px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-h);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.export-preview-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.export-preview {
+  display: flex;
+  flex-direction: column;
+  max-height: min(82vh, 720px);
+}
+
+.export-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.export-preview-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+}
+
+.export-preview-badge.file-format-badge {
+  position: static;
+}
+
+.export-preview-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.export-preview-close:hover {
+  background: var(--gold-dim);
+  color: var(--gold);
+}
+
+.export-preview-close:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.export-preview-body {
+  padding: 16px 18px;
+  overflow: auto;
+}
+
+.export-preview-content {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-h);
+}
+
+.export-preview-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+
+/* Markdown preview — renders like a desktop Markdown viewer (headings, bold, lists, the
+   traceability table), not a raw text dump. See components/MarkdownView.tsx. */
+
+.markdown-view {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-h);
+}
+
+.markdown-view > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3 {
+  margin: 18px 0 8px;
+}
+
+.markdown-view h1 {
+  font-size: 19px;
+}
+
+.markdown-view h2 {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 16px;
+}
+
+.markdown-view h3 {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.markdown-view p {
+  margin: 0 0 10px;
+  color: var(--text);
+}
+
+.markdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.markdown-view li {
+  color: var(--text);
+}
+
+.markdown-view strong {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.markdown-view code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.markdown-table-wrap {
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.markdown-table th,
+.markdown-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table th {
+  background: var(--surface-raised);
+  color: var(--text-h);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Spreadsheet preview — renders CSV as an actual grid: lettered columns, numbered rows, a
+   frozen header row and row-number column, like a desktop spreadsheet app. See
+   components/SpreadsheetView.tsx. border-collapse: separate (not collapse) is deliberate —
+   collapsed borders on sticky cells render inconsistently across browsers; each cell keeping
+   its own border with zero spacing gets the same grid look without that bug. */
+
+.spreadsheet-view {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.spreadsheet-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.spreadsheet-table th,
+.spreadsheet-table td {
+  /* Jira CSV's free-text columns (Description, Acceptance Criteria, ...) can run to
+     hundreds of characters — left unbounded, one long cell forces its whole column wide
+     enough that only 2-3 of the sheet's 13 columns fit in the preview at once. Capping
+     width and truncating (like Excel's default column behavior) keeps far more columns
+     in view; the full value is still one hover away via the native title tooltip (see
+     SpreadsheetView.tsx). */
+  max-width: 160px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.spreadsheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+  color: var(--text);
+  text-align: center;
+  font-weight: 600;
+}
+
+.spreadsheet-row-head {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+  color: var(--text);
+  text-align: center;
+  font-weight: 600;
+}
+
+.spreadsheet-table thead .spreadsheet-row-head {
+  z-index: 2;
+}
+
+.spreadsheet-header-row td {
+  background: var(--gold-dim);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+/* Terminal — macOS-terminal-style setup walkthrough (About page). See components/Terminal.tsx
+   for why this reimplements a reference component's look without its motion/react dependency:
+   plain CSS animation-delay for the line stagger, a monospace steps() width reveal for the
+   typewriter effect. Traffic-light dots reuse existing theme tokens (gold/danger/source)
+   rather than literal macOS red/yellow/green, so the widget still reads as this app's own. */
+
+.terminal {
+  max-width: 560px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.terminal-titlebar {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.terminal-dot-red {
+  background: var(--danger);
+}
+
+.terminal-dot-yellow {
+  background: var(--gold);
+}
+
+.terminal-dot-green {
+  background: var(--source);
+}
+
+.terminal-body {
+  margin: 0;
+  padding: 20px 18px;
+  overflow-x: auto;
+}
+
+.terminal-body code {
+  display: grid;
+  gap: 9px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.terminal-line {
+  display: block;
+  white-space: nowrap;
+}
+
+.terminal-line-command {
+  opacity: 0;
+  animation: terminal-line-in 1ms linear forwards;
+  animation-delay: var(--terminal-delay);
+  color: var(--text-h);
+}
+
+.terminal-line-success,
+.terminal-line-muted {
+  opacity: 0;
+  transform: translateY(-4px);
+  animation: terminal-line-fade 260ms ease-out forwards;
+  animation-delay: var(--terminal-delay);
+}
+
+.terminal-line-success {
+  color: var(--source);
+}
+
+.terminal-line-muted {
+  color: var(--text);
+}
+
+@keyframes terminal-line-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes terminal-line-fade {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.terminal-prompt {
+  color: var(--gold);
+  margin-right: 8px;
+}
+
+.terminal-typed {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  width: 0;
+  animation: terminal-type var(--terminal-typing-duration) steps(var(--terminal-chars)) forwards;
+  animation-delay: var(--terminal-delay);
+}
+
+@keyframes terminal-type {
+  to {
+    width: calc(var(--terminal-chars) * 1ch);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The global reduced-motion rule above zeroes animation-duration but not animation-delay —
+     left alone, every line would still wait out its full stagger delay (multiple seconds by
+     the last line) before instantly popping in, which isn't "reduced" motion, just compressed
+     motion. Zero the delay too so the whole terminal renders complete on first paint. */
+  .terminal-line-command,
+  .terminal-line-success,
+  .terminal-line-muted,
+  .terminal-typed {
+    animation-delay: 0ms !important;
+  }
+}
+
+/* Aurora text — the topbar wordmark's ambient brand signature. Adapted from a reference
+   component, not copied: the reference cycled through an unrelated neon palette (pink/
+   purple/blue) and continuously rotated + scaled the actual glyphs via transform. Neither
+   fits here — the palette became our own gold family (--gold-deep/--gold/--gold-shine, no
+   other hue), and the glyph wobble is dropped entirely: this sits in permanent, always-
+   visible chrome next to a static logo, and a control-room tool should read as steady, not
+   performative (the same reasoning that kept the shiny-button effect to one single,
+   momentary CTA rather than everywhere). What's kept from the reference is the slow,
+   breathing back-and-forth drift instead of shine-text's one-directional sweep — a
+   different character for a different meaning (ambient brand mark vs. "this is actively
+   happening right now"). Placed at the end of the file for the same reason as .shine-text
+   above — always paired with another class (.topbar-name) on the same element. */
+.aurora-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--gold-deep),
+    var(--gold),
+    var(--gold-shine),
+    var(--aurora-coral),
+    var(--aurora-rose),
+    var(--gold-deep)
+  );
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aurora-drift 4s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-text {
+    animation: none;
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: var(--gold);
+  }
 }

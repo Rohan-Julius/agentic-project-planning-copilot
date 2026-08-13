@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import HoverButtonContent from '../components/HoverButtonContent'
 import type { Project, ProjectCreateInput } from '../types'
 
 /** Split a comma-separated field into a trimmed, non-empty list. */
@@ -90,7 +91,7 @@ export default function CreateProject() {
           <label htmlFor="methodology">Methodology</label>
           {/* Fixed to Agile/Scrum by project decision — milestone planning is out of scope. */}
           <input id="methodology" value="Agile / Scrum" readOnly disabled />
-          <small className="muted">Fixed for this tool — a sprint plan is always generated.</small>
+          <small className="muted">Fixed for this tool: a sprint plan is always generated.</small>
         </div>
 
         <div className="field">
@@ -137,8 +138,8 @@ export default function CreateProject() {
         {error && <p className="error">Could not create project: {error}</p>}
 
         <div className="form-actions">
-          <button className="button" type="submit" disabled={submitting || !name.trim()}>
-            {submitting ? 'Creating…' : 'Create project'}
+          <button className="button-hover" type="submit" disabled={submitting || !name.trim()}>
+            <HoverButtonContent>{submitting ? 'Creating…' : 'Create project'}</HoverButtonContent>
           </button>
         </div>
       </form>

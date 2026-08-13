@@ -95,6 +95,38 @@ class VectorService:
         )
         return self.search(collection, query_vector, query_filter, top_k)
 
+    def list_by_document(
+        self, collection: str, project_id: str, document_id: str
+    ) -> list[ChunkPayload]:
+        """Every chunk currently stored for one document (§16.3 "viewing chunks"), project-
+        filtered (§12.3) same as every other project read. Returns `[]` for a document that
+        hasn't been indexed yet rather than raising — that's a legitimate state, not an
+        error. A plain `scroll` (not `search`) since this has no query vector — it's a
+        lookup by payload fields, not a similarity search. `limit` is generous rather than
+        paginated: chunking (§5) caps how large any one section can be before it splits, so
+        a single document's chunk count stays small enough that one page is always enough
+        for this PoC's scale.
+        """
+        query_filter = Filter(
+            must=[
+                FieldCondition(key="document_id", match=MatchValue(value=document_id)),
+                FieldCondition(key="project_id", match=MatchValue(value=project_id)),
+            ]
+        )
+        points, _ = self.client.scroll(
+            collection_name=collection,
+            scroll_filter=query_filter,
+            limit=10_000,
+            with_payload=True,
+            with_vectors=False,
+        )
+        # scroll() makes no ordering guarantee (it walks internal storage segments, not
+        # insertion order) — sort by chunk_id, which is the document's own reading-order
+        # sequence (chunking_service assigns "{document_id}-CH-{index:03d}" in order), so
+        # callers see chunks in the order they actually appear in the source document.
+        chunks = [ChunkPayload.model_validate(point.payload) for point in points]
+        return sorted(chunks, key=lambda chunk: chunk.chunk_id)
+
 
 @lru_cache
 def get_vector_service() -> VectorService:

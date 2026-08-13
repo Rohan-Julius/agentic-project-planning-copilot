@@ -60,18 +60,22 @@ class RequirementAnalysisResult(BaseModel):
 
 
 class RequirementRead(BaseModel):
-    """API response schema for a persisted requirement (spec §18).
+    """API response schema for a persisted requirement (spec §16.6, §18).
 
-    Maps from RequirementRecord ORM model. Includes all fields except the
-    internal `id` primary key and `payload_json`.
+    `description` and `source_references` aren't real `RequirementRecord` columns — they
+    live inside its `payload_json` mirror of the original `Requirement` — so this can't be
+    built with plain `model_validate(record)` `from_attributes` the way the other fields
+    are; see `app/api/requirements.py::_to_read`.
     """
 
     requirement_id: str
     project_id: str
     title: str
+    description: str = ""
     category: str
     classification: str
     confidence: float
+    source_references: list[SourceReference] = Field(default_factory=list)
     workflow_run_id: str | None = None
     created_at: datetime
 

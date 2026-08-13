@@ -21,8 +21,21 @@ async function handle<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
+async function handleText(response: Response): Promise<string> {
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new ApiError(response.status, body.detail ?? response.statusText)
+  }
+  return response.text()
+}
+
 export const api = {
   get: <T>(path: string) => fetch(`${apiBaseUrl}${path}`).then((r) => handle<T>(r)),
+
+  // Export endpoints return the raw file body (JSON/Markdown/CSV text, not a JSON envelope) —
+  // handle() always parses as JSON, so previewing those requires reading the response as text
+  // instead (see ExportPreviewModal).
+  getText: (path: string) => fetch(`${apiBaseUrl}${path}`).then((r) => handleText(r)),
 
   post: <T>(path: string, data: unknown) =>
     fetch(`${apiBaseUrl}${path}`, {

@@ -156,6 +156,114 @@ def test_start_workflow_allows_a_new_run_once_the_previous_one_finished(client):
     assert response.status_code == 200
 
 
+def test_abandon_marks_a_running_run_as_error(client):
+    """A run whose owning process died mid-flight stays frozen at RUNNING forever — nothing
+    resumes it automatically (see docs/superpowers — no startup hook, no side-effecting
+    status read ever calls graph.invoke again). This is the human's deliberate way out,
+    matching the project's "no auto-approval" pattern: nothing resolves this on its own.
+    """
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-stuck", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/abandon")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["workflow_run_id"] == "RUN-stuck"
+    assert body["status"] == "ERROR"
+
+
+def test_abandon_marks_a_waiting_for_human_input_run_as_error(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(
+        WorkflowRun(
+            workflow_run_id="RUN-stuck", project_id=project_id,
+            status=STATUS_WAITING_FOR_HUMAN_INPUT,
+        )
+    )
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/abandon")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ERROR"
+
+
+def test_abandon_sets_ended_at(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-stuck", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/abandon")
+
+    assert response.json()["ended_at"] is not None
+
+
+def test_abandon_logs_an_event(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-stuck", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    client.post(f"/projects/{project_id}/workflow/abandon")
+    events = client.get(f"/projects/{project_id}/workflow/events").json()
+
+    assert any(e["action"] == "ABANDONED" and e["status"] == "ERROR" for e in events)
+
+
+def test_abandon_returns_409_when_run_is_already_completed(client):
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-done", project_id=project_id, status="COMPLETED"))
+    session.commit()
+    session.close()
+
+    response = client.post(f"/projects/{project_id}/workflow/abandon")
+
+    assert response.status_code == 409
+
+
+def test_abandon_returns_404_when_no_run_exists(client):
+    project_id = _create_project(client)
+
+    response = client.post(f"/projects/{project_id}/workflow/abandon")
+
+    assert response.status_code == 404
+
+
+def test_abandon_returns_404_for_unknown_project(client):
+    response = client.post("/projects/does-not-exist/workflow/abandon")
+    assert response.status_code == 404
+
+
+def test_abandon_unblocks_starting_a_new_run(client):
+    """The actual problem this fixes: a stuck run's frozen RUNNING status permanently
+    blocks /workflow/start's conflict check (see
+    test_start_workflow_rejects_a_second_run_while_one_is_active) — abandon() is the only
+    way out of that once nothing is left to legitimately finish the old run.
+    """
+    project_id = _create_project(client)
+    session = client.session_factory()
+    session.add(WorkflowRun(workflow_run_id="RUN-stuck", project_id=project_id, status="RUNNING"))
+    session.commit()
+    session.close()
+
+    abandon_response = client.post(f"/projects/{project_id}/workflow/abandon")
+    assert abandon_response.status_code == 200
+
+    start_response = client.post(f"/projects/{project_id}/workflow/start")
+
+    assert start_response.status_code == 200
+
+
 def test_status_pending_gate_is_null_when_not_waiting(client):
     project_id = _create_project(client)
     session = client.session_factory()

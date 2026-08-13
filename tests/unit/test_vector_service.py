@@ -80,6 +80,65 @@ def test_delete_by_document_stops_further_retrieval():
     assert results == []
 
 
+def test_list_by_document_returns_every_chunk_for_that_document_with_text():
+    service = _service()
+    chunk_1 = _chunk("doc_1-CH-001", project_id="proj_a", document_id="doc_1", text="First chunk.")
+    chunk_2 = _chunk("doc_1-CH-002", project_id="proj_a", document_id="doc_1", text="Second chunk.")
+    service.upsert_chunks(
+        "project_knowledge", [chunk_1, chunk_2], [_vector(1.0), _vector(2.0)]
+    )
+
+    results = service.list_by_document("project_knowledge", project_id="proj_a", document_id="doc_1")
+
+    assert {r.chunk_id for r in results} == {"doc_1-CH-001", "doc_1-CH-002"}
+    assert {r.text for r in results} == {"First chunk.", "Second chunk."}
+
+
+def test_list_by_document_excludes_other_documents_and_projects():
+    service = _service()
+    target = _chunk("doc_1-CH-001", project_id="proj_a", document_id="doc_1")
+    other_doc = _chunk("doc_2-CH-001", project_id="proj_a", document_id="doc_2")
+    other_project = _chunk("doc_1-CH-001b", project_id="proj_b", document_id="doc_1")
+    service.upsert_chunks(
+        "project_knowledge",
+        [target, other_doc, other_project],
+        [_vector(1.0), _vector(2.0), _vector(3.0)],
+    )
+
+    results = service.list_by_document("project_knowledge", project_id="proj_a", document_id="doc_1")
+
+    assert len(results) == 1
+    assert results[0].chunk_id == "doc_1-CH-001"
+
+
+def test_list_by_document_returns_chunks_in_chunk_id_order():
+    """Qdrant's scroll() makes no ordering guarantee — chunks must come back in document
+    sequence (chunk_id order), not whatever internal storage order Qdrant happens to use.
+    Upserted deliberately out of order to catch a naive "just return what scroll gives me".
+    """
+    service = _service()
+    chunk_3 = _chunk("doc_1-CH-003", project_id="proj_a", document_id="doc_1", text="third")
+    chunk_1 = _chunk("doc_1-CH-001", project_id="proj_a", document_id="doc_1", text="first")
+    chunk_2 = _chunk("doc_1-CH-002", project_id="proj_a", document_id="doc_1", text="second")
+    service.upsert_chunks(
+        "project_knowledge",
+        [chunk_3, chunk_1, chunk_2],
+        [_vector(3.0), _vector(1.0), _vector(2.0)],
+    )
+
+    results = service.list_by_document("project_knowledge", project_id="proj_a", document_id="doc_1")
+
+    assert [r.chunk_id for r in results] == ["doc_1-CH-001", "doc_1-CH-002", "doc_1-CH-003"]
+
+
+def test_list_by_document_returns_empty_list_when_never_indexed():
+    service = _service()
+
+    results = service.list_by_document("project_knowledge", project_id="proj_a", document_id="doc_1")
+
+    assert results == []
+
+
 def test_project_and_organizational_collections_are_physically_separate():
     service = _service()
     project_chunk = _chunk("doc_1-CH-001", project_id="proj_a", document_id="doc_1")

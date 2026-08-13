@@ -245,6 +245,10 @@ def reviewer_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
             state["project_id"], report,
             session_factory=config["configurable"]["session_factory"],
         )
+        _log(
+            state, config, agent="Reviewer", stage=NODE_REVIEWER,
+            action="CALL_TOOL", status="SUCCESS", tool="save_reviewer_report",
+        )
 
         _log(
             state, config, agent="Reviewer", stage=NODE_REVIEWER,
@@ -310,6 +314,7 @@ def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> d
             session_factory=session_factory,
             vector_service=config["configurable"].get("vector_service"),
             revision_instructions=revision_instructions,
+            stage=NODE_PLAN_REVISION,
         )
         version_id = get_current_plan_version_id(state["project_id"], session_factory=session_factory)
 

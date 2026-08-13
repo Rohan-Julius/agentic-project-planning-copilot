@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Project, ReviewerIssue, ReviewerReport } from '../types'
+import HoverButtonContent from '../components/HoverButtonContent'
+import type { Project, ReviewerIssue, ReviewerReport, WorkflowRun } from '../types'
+import { reviewerDecisionLabel, revisionStatusLabel } from '../utils/workflowLabels'
 
 function IssueList({ title, issues }: { title: string; issues: ReviewerIssue[] }) {
   if (issues.length === 0) return null
@@ -13,7 +15,7 @@ function IssueList({ title, issues }: { title: string; issues: ReviewerIssue[] }
       <ul>
         {issues.map((issue, i) => (
           <li key={i}>
-            <strong>{issue.artifact_id}</strong> — {issue.issue_type}: {issue.description}
+            <strong>{issue.artifact_id}</strong> ({issue.issue_type}): {issue.description}
             <p className="muted">Recommended: {issue.recommended_action}</p>
           </li>
         ))}
@@ -27,6 +29,7 @@ export default function ReviewerScreen() {
   const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [report, setReport] = useState<ReviewerReport | null>(null)
+  const [run, setRun] = useState<WorkflowRun | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [approving, setApproving] = useState(false)
@@ -37,10 +40,15 @@ export default function ReviewerScreen() {
     Promise.all([
       api.get<Project>(`/projects/${projectId}`),
       api.get<ReviewerReport>(`/projects/${projectId}/review`),
+      // Revision status (§16.7) isn't part of the review report itself — it's a property
+      // of the workflow run (revision_count vs the fixed one-cycle limit) — so this needs
+      // its own fetch rather than reading it off `report`.
+      api.get<WorkflowRun>(`/projects/${projectId}/workflow/status`).catch(() => null),
     ])
-      .then(([p, r]) => {
+      .then(([p, r, wr]) => {
         setProject(p)
         setReport(r)
+        setRun(wr)
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
       .finally(() => setLoading(false))
@@ -78,7 +86,8 @@ export default function ReviewerScreen() {
       {report && (
         <>
           <section className="panel">
-            <h2>Decision: {report.decision}</h2>
+            <h2>Decision: {reviewerDecisionLabel(report.decision)}</h2>
+            {run && <p className="muted">{revisionStatusLabel(run.revision_count)}</p>}
             {report.warnings.length > 0 && (
               <>
                 <p className="muted">Warnings (accepted by proceeding to approval):</p>
@@ -112,12 +121,17 @@ export default function ReviewerScreen() {
           <section className="panel">
             <h2>Final approval</h2>
             <p className="muted">
-              Approving is a human decision — the system never auto-approves a plan, even when
+              Approving is a human decision. The system never auto-approves a plan, even when
               the reviewer decision is PASS.
             </p>
             <div className="form-actions">
-              <button className="button" type="button" disabled={approving} onClick={handleApprove}>
-                {approving ? 'Approving…' : 'Approve plan'}
+              <button
+                className="button-hover"
+                type="button"
+                disabled={approving}
+                onClick={handleApprove}
+              >
+                <HoverButtonContent>{approving ? 'Approving…' : 'Approve plan'}</HoverButtonContent>
               </button>
             </div>
           </section>

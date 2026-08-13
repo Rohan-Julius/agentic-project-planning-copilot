@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     clarifications,
+    dashboard,
     documents,
     export,
     plan,
@@ -23,7 +24,7 @@ from app.config import get_settings
 from app.database.session import init_db
 
 app = FastAPI(
-    title="Agentic Project Planning Copilot",
+    title="Planning Copilot",
     description="Local agentic AI that turns raw requirements into a reviewable project plan.",
     version="0.1.0",
 )
@@ -35,6 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(dashboard.router)
 app.include_router(projects.router)
 app.include_router(documents.router)
 app.include_router(requirements.router)

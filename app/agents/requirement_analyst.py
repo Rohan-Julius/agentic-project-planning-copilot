@@ -21,6 +21,8 @@ from app.tools.retrieval_tools import (
     search_company_standards,
     search_project_documents,
 )
+from app.workflow.events import log_tool_call
+from app.workflow.routes import NODE_REQUIREMENT_ANALYST
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -59,19 +61,32 @@ def run_requirement_analyst_agent(
     Raises:
         AgentError: if Ollama returns invalid JSON twice (§20.1)
     """
+    def _log_tool(tool: str) -> None:
+        log_tool_call(
+            session_factory,
+            workflow_run_id=workflow_run_id,
+            project_id=project_id,
+            agent="RequirementAnalyst",
+            stage=NODE_REQUIREMENT_ANALYST,
+            tool=tool,
+        )
+
     # Gather initial context
     project_info = get_project_information(project_id, session_factory=session_factory)
+    _log_tool("get_project_information")
     logger.info(f"[Requirement Analyst] analyzing project {project_id}, run {workflow_run_id}")
 
     # Retrieve sample project documents for context window (top 10 most relevant)
     doc_samples = search_project_documents(
         project_id, "requirements", top_k=10, vector_service=vector_service
     )
+    _log_tool("search_project_documents")
 
     # Retrieve relevant company standards (user story template, DoR/DoD)
     standards = search_company_standards(
         "user story template", category=None, top_k=3, vector_service=vector_service
     )
+    _log_tool("search_company_standards")
 
     # Build system prompt (analyst role + tasks + grounding + injection guard)
     system_prompt = """
@@ -196,9 +211,11 @@ CRITICAL:
 
     # Persist findings to database
     save_requirements(project_id, result, workflow_run_id, session_factory=session_factory)
+    _log_tool("save_requirements")
     save_clarification_questions(
         project_id, result, workflow_run_id, session_factory=session_factory
     )
+    _log_tool("save_clarification_questions")
 
     return result
 

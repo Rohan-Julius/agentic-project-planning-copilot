@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Classification, Project, ProjectPlan, SourceReference } from '../types'
+import type { Classification, Project, ProjectPlan, Requirement, SourceReference } from '../types'
 
 function Badge({ classification }: { classification: Classification }) {
   return (
@@ -20,7 +20,7 @@ function Citations({ refs }: { refs: SourceReference[] }) {
         .map(
           (r) =>
             `${r.document_name}${r.page_number ? ` p.${r.page_number}` : ''}${
-              r.section ? ` — ${r.section}` : ''
+              r.section ? `, ${r.section}` : ''
             }`,
         )
         .join('; ')}
@@ -32,6 +32,7 @@ export default function PlanningWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
   const [project, setProject] = useState<Project | null>(null)
   const [plan, setPlan] = useState<ProjectPlan | null>(null)
+  const [requirements, setRequirements] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,10 +42,12 @@ export default function PlanningWorkspace() {
     Promise.all([
       api.get<Project>(`/projects/${projectId}`),
       api.get<ProjectPlan>(`/projects/${projectId}/plan`),
+      api.get<Requirement[]>(`/projects/${projectId}/requirements`),
     ])
-      .then(([p, pl]) => {
+      .then(([p, pl, reqs]) => {
         setProject(p)
         setPlan(pl)
+        setRequirements(reqs)
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
       .finally(() => setLoading(false))
@@ -56,7 +59,7 @@ export default function PlanningWorkspace() {
         <div>
           <h1>{project?.name ?? 'Plan'}</h1>
           <p className="muted">
-            Generated epics, stories, tasks, RAID log, and sprint plan — review before approval.
+            Generated epics, stories, tasks, RAID log, and sprint plan. Review before approval.
           </p>
         </div>
         <Link className="back-link" to={`/projects/${projectId}/review`}>
@@ -95,6 +98,29 @@ export default function PlanningWorkspace() {
           </section>
 
           <section className="panel">
+            <h2>Requirements ({requirements.length})</h2>
+            {requirements.length === 0 ? (
+              <p className="muted">No requirements extracted.</p>
+            ) : (
+              requirements.map((req) => (
+                <div key={req.requirement_id} className="artifact-card">
+                  <div className="artifact-header">
+                    <strong>
+                      {req.requirement_id}: {req.title}
+                    </strong>
+                    <Badge classification={req.classification} />
+                  </div>
+                  <p>{req.description}</p>
+                  <p className="muted">
+                    Category: {req.category} · Confidence: {req.confidence.toFixed(2)}
+                  </p>
+                  <Citations refs={req.source_references} />
+                </div>
+              ))
+            )}
+          </section>
+
+          <section className="panel">
             <h2>Epics ({plan.epics.length})</h2>
             {plan.epics.map((epic) => (
               <div key={epic.epic_id} className="artifact-card">
@@ -128,7 +154,7 @@ export default function PlanningWorkspace() {
                 </p>
                 <p className="muted">
                   Epic: {story.epic_id} · Priority: {story.priority} · Suggested points (unconfirmed):{' '}
-                  {story.suggested_story_points ?? '—'}
+                  {story.suggested_story_points ?? 'N/A'}
                 </p>
                 <ul>
                   {story.acceptance_criteria.map((ac) => (
@@ -161,7 +187,7 @@ export default function PlanningWorkspace() {
               {plan.raid.dependencies.map((dep) => (
                 <li key={dep.dependency_id}>
                   {dep.blocking_item_id} blocks {dep.blocked_item_id} ({dep.dependency_type})
-                  {dep.description ? ` — ${dep.description}` : ''}
+                  {dep.description ? `: ${dep.description}` : ''}
                 </li>
               ))}
             </ul>
@@ -176,7 +202,7 @@ export default function PlanningWorkspace() {
                   {risk.description} <Badge classification={risk.classification} />
                   <span className="muted">
                     {' '}
-                    — probability {risk.probability}, impact {risk.impact}, severity {risk.severity}
+                    (probability {risk.probability}, impact {risk.impact}, severity {risk.severity})
                   </span>
                 </li>
               ))}
@@ -204,7 +230,7 @@ export default function PlanningWorkspace() {
             {plan.sprint_plan ? (
               <>
                 <p className="muted">
-                  AI-generated draft — requires human review. Suggested sprints:{' '}
+                  AI-generated draft. Requires human review. Suggested sprints:{' '}
                   {plan.sprint_plan.suggested_sprint_count}
                 </p>
                 {plan.sprint_plan.sprints.map((sprint) => (
@@ -213,7 +239,7 @@ export default function PlanningWorkspace() {
                       Sprint {sprint.sprint_number}: {sprint.sprint_goal}
                     </strong>
                     <p className="muted">
-                      {sprint.story_point_total} points — {sprint.story_ids.join(', ') || 'no stories assigned'}
+                      {sprint.story_point_total} points: {sprint.story_ids.join(', ') || 'no stories assigned'}
                     </p>
                   </div>
                 ))}
@@ -241,9 +267,9 @@ export default function PlanningWorkspace() {
                 {plan.traceability.rows.map((row) => (
                   <tr key={row.requirement_id}>
                     <td>{row.requirement_id}</td>
-                    <td>{row.epic_id ?? '—'}</td>
-                    <td>{row.story_id ?? '—'}</td>
-                    <td>{row.acceptance_criterion_ids.join(', ') || '—'}</td>
+                    <td>{row.epic_id ?? 'N/A'}</td>
+                    <td>{row.story_id ?? 'N/A'}</td>
+                    <td>{row.acceptance_criterion_ids.join(', ') || 'N/A'}</td>
                   </tr>
                 ))}
               </tbody>
