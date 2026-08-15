@@ -35,17 +35,39 @@ def _point_id(chunk_id: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
 
 
+class VectorServiceUnavailableError(RuntimeError):
+    """Raised when the configured Qdrant backend cannot be reached or initialized (spec
+    §25 "Chroma/Qdrant unavailable" negative case). Callers must never let the underlying
+    qdrant-client/httpx exception propagate raw past this point — app/main.py registers an
+    exception handler that maps this one type to a clean 503 with a stable `{"detail": ...}`
+    body, matching every other error response in this app (see frontend/src/api/client.ts's
+    ApiError). Letting the raw exception escape instead produces an unhandled Starlette 500
+    that skips CORSMiddleware's normal response path, which the browser reports as a bare
+    "Failed to fetch" with no usable detail (diagnosed docs/PROJECT_PLAN.md Day 14).
+    """
+
+
 class VectorService:
     def __init__(self, client: QdrantClient | None = None) -> None:
         settings = get_settings()
-        if client is not None:
-            self.client = client
-        elif settings.qdrant_url:
-            self.client = QdrantClient(url=settings.qdrant_url)
-        else:
-            self.client = QdrantClient(path=str(settings.qdrant_local_path))
-        for collection in (settings.qdrant_project_collection, settings.qdrant_org_collection):
-            self._ensure_collection(collection)
+        try:
+            if client is not None:
+                self.client = client
+            elif settings.qdrant_url:
+                self.client = QdrantClient(url=settings.qdrant_url)
+            else:
+                self.client = QdrantClient(path=str(settings.qdrant_local_path))
+            for collection in (
+                settings.qdrant_project_collection,
+                settings.qdrant_org_collection,
+            ):
+                self._ensure_collection(collection)
+        except VectorServiceUnavailableError:
+            raise
+        except Exception as exc:
+            raise VectorServiceUnavailableError(
+                f"Qdrant vector store is not reachable: {exc}"
+            ) from exc
 
     def _ensure_collection(self, collection: str) -> None:
         if not self.client.collection_exists(collection):

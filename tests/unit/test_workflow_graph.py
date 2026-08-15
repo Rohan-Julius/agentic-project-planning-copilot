@@ -5,7 +5,9 @@ and loop limits actually work end-to-end, not just the router function in isolat
 from __future__ import annotations
 
 import sqlite3
+from unittest.mock import patch
 
+import httpx
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
@@ -363,3 +365,58 @@ def test_final_approve_patch_releases_the_gate_and_reaches_export(session_factor
         select(WorkflowEvent).where(WorkflowEvent.workflow_run_id == "RUN-final-approve")
     ).all()
     assert any(e.action == "WORKFLOW_COMPLETE" for e in events)
+
+
+def test_ollama_unreachable_controlled_stops_at_supervisor_not_a_crash(
+    session_factory, checkpointer
+):
+    """§25 'Ollama unavailable': supervisor_node is the graph's first node (START ->
+    supervisor). If Ollama is completely down, run_agent() wraps the connection failure in
+    AgentError (app/agents/runner.py), supervisor_node catches it and records
+    state["errors"], and route_next_node sends the run straight to NODE_STOP_ERROR —
+    graph.invoke() must return normally (no exception escapes), proving the whole run
+    degrades to a controlled stop instead of crashing the caller.
+    """
+    session = session_factory()
+    session.add(ProjectRecord(project_id="proj_ollama_down", name="Ollama Down Project"))
+    session.commit()
+    session.close()
+
+    vector_service = VectorService(client=QdrantClient(location=":memory:"))
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-ollama-down", session_factory, vector_service)
+
+    with patch("ollama.generate", side_effect=httpx.ConnectError("Connection refused")):
+        result = graph.invoke(_base_state(project_id="proj_ollama_down"), config=config)
+
+    assert result["current_stage"] == "stop_error"
+    assert result["errors"]
+    assert any("not reachable" in e for e in result["errors"])
+
+    session = session_factory()
+    events = session.scalars(
+        select(WorkflowEvent).where(WorkflowEvent.workflow_run_id == "RUN-ollama-down")
+    ).all()
+    assert any(e.agent == "Supervisor" and e.status == "ERROR" for e in events)
+
+
+def test_invalid_json_twice_controlled_stops_not_a_crash(session_factory, checkpointer):
+    """§25 'LLM returning invalid JSON': same controlled-stop guarantee, but for the other
+    AgentError cause — two consecutive schema-invalid responses (app/agents/runner.py's own
+    max_retries=1 default), rather than a connection failure.
+    """
+    session = session_factory()
+    session.add(ProjectRecord(project_id="proj_bad_json", name="Bad JSON Project"))
+    session.commit()
+    session.close()
+
+    vector_service = VectorService(client=QdrantClient(location=":memory:"))
+    graph = compile_graph(checkpointer)
+    config = _config("RUN-bad-json", session_factory, vector_service)
+
+    with patch("ollama.generate", return_value={"response": "not valid json at all"}):
+        result = graph.invoke(_base_state(project_id="proj_bad_json"), config=config)
+
+    assert result["current_stage"] == "stop_error"
+    assert result["errors"]
+    assert any("Schema validation failed" in e for e in result["errors"])

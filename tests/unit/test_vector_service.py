@@ -4,10 +4,11 @@ project isolation is a physical collection split, not just a payload filter.
 """
 from __future__ import annotations
 
+import pytest
 from qdrant_client import QdrantClient
 
 from app.schemas.document import ChunkPayload
-from app.services.vector_service import VectorService
+from app.services.vector_service import VectorService, VectorServiceUnavailableError
 
 
 def _service() -> VectorService:
@@ -186,3 +187,22 @@ def test_falls_back_to_embedded_local_qdrant_when_url_is_unset(tmp_path, monkeyp
     assert (tmp_path / "qdrant_local").exists()
 
     get_settings.cache_clear()
+
+
+def test_vector_service_raises_clean_error_when_qdrant_connection_fails():
+    """§25 'Chroma/Qdrant unavailable': a broken client (connection refused, wrong host,
+    server down) must surface as VectorServiceUnavailableError, never a raw qdrant-client/
+    httpx exception — app/main.py's exception handler only knows how to translate this one
+    type into a clean 503.
+    """
+
+    class _RaisingClient:
+        def collection_exists(self, name):
+            raise ConnectionError("Connection refused")
+
+    with pytest.raises(VectorServiceUnavailableError) as exc_info:
+        VectorService(client=_RaisingClient())
+
+    assert "Qdrant vector store is not reachable" in str(exc_info.value)
+    # The original exception must still be reachable for logging/debugging.
+    assert isinstance(exc_info.value.__cause__, ConnectionError)
