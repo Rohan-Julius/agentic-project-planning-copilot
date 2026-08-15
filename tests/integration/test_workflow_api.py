@@ -9,6 +9,10 @@ something). Tests here assert on that structural guarantee rather than a fixed s
 """
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import httpx
+
 from app.models.workflow import WorkflowRun
 from app.workflow.engine import STATUS_WAITING_FOR_HUMAN_INPUT
 from app.workflow.graph import compile_graph
@@ -334,3 +338,18 @@ def test_status_pending_gate_reflects_the_actual_interrupted_gate(client):
 
     assert response.status_code == 200
     assert response.json()["pending_gate"] == "final_gate"
+
+
+def test_start_workflow_with_ollama_down_returns_clean_error_status_not_a_crash(client):
+    """§25 'Ollama unavailable' at the full API level: the endpoint itself must return 200
+    with a WorkflowRun body whose status is ERROR — not a 500 (a generic catch-all would
+    otherwise mask a real regression in this path as "just some unexpected error").
+    """
+    project_id = _create_project(client)
+
+    with patch("ollama.generate", side_effect=httpx.ConnectError("Connection refused")):
+        response = client.post(f"/projects/{project_id}/workflow/start")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ERROR"

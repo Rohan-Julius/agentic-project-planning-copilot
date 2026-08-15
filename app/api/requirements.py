@@ -7,13 +7,19 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.database.session import get_session
 from app.models.requirement import RequirementRecord
+from app.services import project_service
 from app.schemas.requirement import RequirementRead
 
 router = APIRouter(prefix="/projects/{project_id}/requirements", tags=["requirements"])
+
+
+def _require_project(session: Session, project_id: str) -> None:
+    if project_service.get_project(session, project_id) is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
 
 
 def _to_read(record: RequirementRecord) -> RequirementRead:
@@ -54,6 +60,7 @@ def get_requirements(
     Returns:
         List of requirements for the project (may be empty)
     """
+    _require_project(session, project_id)
     requirements = session.scalars(
         select(RequirementRecord)
         .where(RequirementRecord.project_id == project_id)
