@@ -60,6 +60,13 @@ def _summarize_state(state: ProjectWorkflowState) -> str:
     elif state["revision_count"] >= 1:
         parts.append(f"↻ Revision: EXHAUSTED (max 1 allowed, count={state['revision_count']})")
 
+    if state["reviewer_decision"] in ("PASS", "PASS_WITH_WARNINGS") and not state["final_approved"]:
+        parts.append(
+            "⏸  Final approval: AWAITING human approval to proceed — review passing does NOT "
+            "mean it is ready to export; a human must approve the final plan first "
+            "(WAIT_FOR_FINAL_APPROVAL, not EXPORT_PLAN)."
+        )
+
     if state["final_approved"]:
         parts.append("✓ Final approval: APPROVED — ready to export")
 

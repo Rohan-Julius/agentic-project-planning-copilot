@@ -185,6 +185,59 @@ def test_supervisor_state_summary():
     assert "requirement" in prompt.lower()
 
 
+def test_state_summary_explicitly_flags_pending_final_approval():
+    """Regression test for the Day 19 evaluation finding (evaluation/reports/
+    day19_evaluation_report.md §24.3): when the reviewer has passed but a human hasn't
+    approved yet, the prompt must say so explicitly — mirroring the existing clarification-
+    approval cue — or the model has no textual signal that WAIT_FOR_FINAL_APPROVAL (not
+    EXPORT_PLAN) is correct.
+    """
+    state = _base_state()
+    state.update({
+        "requirement_ids": ["req1"],
+        "clarification_approved": True,
+        "plan_version_id": "v1",
+        "reviewer_decision": "PASS",
+        "final_approved": False,
+    })
+    mock_session = Mock()
+
+    with patch("app.agents.supervisor.run_agent") as mock_agent:
+        mock_agent.return_value = SupervisorDecision(
+            next_action="WAIT_FOR_FINAL_APPROVAL", reason="Test", required_inputs=[],
+        )
+        run_supervisor_agent(state, mock_session)
+
+    prompt = mock_agent.call_args.kwargs["prompt"]
+    assert "AWAITING human approval" in prompt
+    assert "not EXPORT_PLAN" in prompt
+
+
+def test_state_summary_does_not_flag_pending_final_approval_when_already_approved():
+    """The new line must not fire once final_approved is True — must not contradict the
+    existing "✓ Final approval: APPROVED" line right below it.
+    """
+    state = _base_state()
+    state.update({
+        "requirement_ids": ["req1"],
+        "clarification_approved": True,
+        "plan_version_id": "v1",
+        "reviewer_decision": "PASS",
+        "final_approved": True,
+    })
+    mock_session = Mock()
+
+    with patch("app.agents.supervisor.run_agent") as mock_agent:
+        mock_agent.return_value = SupervisorDecision(
+            next_action="EXPORT_PLAN", reason="Test", required_inputs=[],
+        )
+        run_supervisor_agent(state, mock_session)
+
+    prompt = mock_agent.call_args.kwargs["prompt"]
+    assert "AWAITING human approval to proceed — review passing" not in prompt
+    assert "APPROVED — ready to export" in prompt
+
+
 def test_supervisor_with_multiple_errors():
     """Supervisor sees multiple errors and recommends stop."""
     state = _base_state()
