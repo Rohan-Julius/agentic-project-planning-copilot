@@ -1,0 +1,2005 @@
+{
+  "summary": {
+    "business_problem": "Customers currently cannot complete online payments for orders, and payment failures are not properly handled or recorded. This results in lost transactions, inconsistent order states, and a lack of auditability for financial compliance.",
+    "proposed_solution": "Implement a payment processing flow that allows customers to create orders and initiate payments via Stripe. The system will create a pending payment record, handle webhook callbacks with idempotency, and maintain a complete audit log of all payment state transitions. Support agents can issue refunds with proper validation and customer notification, ensuring compliance with financial regulations and operational integrity.",
+    "objectives": [],
+    "target_users": [],
+    "expected_benefits": [],
+    "success_criteria": [],
+    "major_constraints": []
+  },
+  "scope": {
+    "in_scope": [
+      "Customer places orders and pays for them online via the online platform.",
+      "System integrates with Stripe as the only payment provider for card payments.",
+      "System creates a payment record in a 'pending' state before redirecting to Stripe.",
+      "System exposes a webhook endpoint to receive asynchronous payment status callbacks from Stripe.",
+      "Incoming webhook callbacks are verified using Stripe's signature scheme with a shared secret configured at deployment time.",
+      "System handles out-of-order or duplicate webhook deliveries using idempotency to prevent double-crediting of orders.",
+      "On payment failure, the order is marked as 'payment failed' and the customer can retry payment with the same order.",
+      "The system records the provider's failure reason code for every failed payment attempt.",
+      "Support agents can issue full or partial refunds for completed payments, with refund amounts not exceeding the original captured amount.",
+      "The customer receives an email notification when a refund is issued.",
+      "Every payment state transition (e.g., pending \u2192 authorized, captured, failed, refunded) is recorded in an immutable audit log with timestamp and actor.",
+      "Payment processing begins only after successful order creation.",
+      "Refund processing is only allowed when a payment has been captured.",
+      "Payment webhook processing completes within 2 seconds under normal load conditions.",
+      "Payment audit logs are retained for a minimum of 7 years to meet financial compliance requirements.",
+      "The system is resilient to temporary unavailability of Stripe by not losing orders and handling failures gracefully."
+    ],
+    "out_of_scope": [
+      "Support for any payment provider other than Stripe.",
+      "Implementation of any payment processing technology outside of Stripe integration.",
+      "Development of any backend or frontend components not related to payment processing or order flow.",
+      "Any functionality related to customer account management or order history beyond payment state handling.",
+      "Integration with any third-party financial systems or settlement platforms beyond settlement report reconciliation."
+    ],
+    "future_scope": [
+      "Extension of payment processing to support additional payment methods beyond card payments.",
+      "Implementation of real-time settlement reconciliation between system records and provider reports.",
+      "Addition of automated fraud detection or risk scoring for payment attempts."
+    ],
+    "assumptions": [
+      "The e-commerce platform accepts online payments as part of its core functionality.",
+      "The shared secret for webhook verification is configured at deployment time with Stripe.",
+      "The system will receive webhook deliveries that are either out-of-order or duplicate based on payload hash or timestamp as defined in the requirements."
+    ],
+    "constraints": [
+      "Only Stripe is in scope for this release; no other payment providers are supported.",
+      "The system must not store raw card numbers to comply with PCI-DSS scope reduction via Stripe-hosted card entry.",
+      "All payment state transitions must be recorded in an immutable audit log with timestamp and actor.",
+      "Webhook processing must complete within 2 seconds under normal load, where normal load is defined as concurrent requests within the system's baseline operational capacity as specified in the requirements."
+    ]
+  },
+  "epics": [
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.1 Order and payment creation",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "5. Dependencies",
+          "chunk_id": "doc_5d8f24da9185-CH-005"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "7. Constraints",
+          "chunk_id": "doc_5d8f24da9185-CH-007"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "6. Risks",
+          "chunk_id": "doc_5d8f24da9185-CH-006"
+        }
+      ],
+      "epic_id": "EPIC-001",
+      "title": "Order Creation and Payment Initiation",
+      "objective": "Enable customers to create orders and initiate payments for the order total via the online platform.",
+      "business_value": "Resolves the business problem of customers being unable to complete online payments by providing a clear path from order creation to payment initiation.",
+      "description": "",
+      "priority": "High",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-007",
+        "REQ-008",
+        "REQ-009",
+        "REQ-019",
+        "REQ-024",
+        "REQ-022",
+        "REQ-023",
+        "REQ-025",
+        "REQ-026",
+        "REQ-031",
+        "REQ-032",
+        "REQ-027",
+        "REQ-028",
+        "REQ-029",
+        "REQ-030"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.2 Payment callbacks",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "5. Dependencies",
+          "chunk_id": "doc_5d8f24da9185-CH-005"
+        }
+      ],
+      "epic_id": "EPIC-002",
+      "title": "Payment Webhook Processing and State Handling",
+      "objective": "Implement a webhook endpoint to receive asynchronous payment status callbacks from Stripe, verify them with a shared secret, and handle out-of-order or duplicate deliveries using idempotency to prevent double-crediting.",
+      "business_value": "Ensures reliable and secure processing of payment status updates, maintaining data integrity and preventing financial errors.",
+      "description": "",
+      "priority": "High",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-010",
+        "REQ-011",
+        "REQ-012",
+        "REQ-021",
+        "REQ-026",
+        "REQ-032"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.3 Failed payments",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "6. Risks",
+          "chunk_id": "doc_5d8f24da9185-CH-006"
+        }
+      ],
+      "epic_id": "EPIC-003",
+      "title": "Failed Payment Handling and Customer Retry",
+      "objective": "On payment failure, mark the order as 'payment failed', record the provider's failure reason code, and allow the customer to retry payment with the same order.",
+      "business_value": "Improves customer experience by enabling retry functionality and provides clear failure visibility for operational and compliance purposes.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-013",
+        "REQ-014",
+        "REQ-028",
+        "REQ-031"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "5. Dependencies",
+          "chunk_id": "doc_5d8f24da9185-CH-005"
+        }
+      ],
+      "epic_id": "EPIC-004",
+      "title": "Refund Processing and Customer Notification",
+      "objective": "Enable support agents to issue full or partial refunds for completed payments, with amounts not exceeding the original captured amount, and notify the customer via email upon refund issuance.",
+      "business_value": "Provides financial closure for failed transactions and ensures compliance with financial regulations and customer service expectations.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-015",
+        "REQ-016",
+        "REQ-017",
+        "REQ-020",
+        "REQ-027",
+        "REQ-029"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.5 Audit logs",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        }
+      ],
+      "epic_id": "EPIC-005",
+      "title": "Immutable Audit Logging of Payment State Transitions",
+      "objective": "Record every payment state transition (e.g., pending \u2192 authorized, captured, failed, refunded) in an immutable audit log with timestamp and actor (customer, webhook, support agent) to ensure financial compliance and traceability.",
+      "business_value": "Provides a complete, tamper-proof audit trail of all payment events, meeting regulatory requirements for financial compliance and operational accountability.",
+      "description": "",
+      "priority": "High",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-018",
+        "REQ-028",
+        "REQ-030"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "6. Risks",
+          "chunk_id": "doc_5d8f24da9185-CH-006"
+        }
+      ],
+      "epic_id": "EPIC-006",
+      "title": "System Resilience to Payment Provider Unavailability",
+      "objective": "Ensure the system maintains order state and does not lose orders during temporary unavailability of Stripe by handling API timeouts gracefully.",
+      "business_value": "Prevents data loss and maintains operational continuity during external service outages, enhancing system reliability and customer trust.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-006",
+        "REQ-031"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.5 Audit logs",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "epic_id": "EPIC-007",
+      "title": "Definition of Payment State Transitions and Triggers",
+      "objective": "Define and implement specific payment states (pending, authorized, captured, failed, refunded) and the triggers for each state transition as per the audit log requirements.",
+      "business_value": "Provides clarity on state transitions to ensure consistent behavior and accurate logging across the payment lifecycle.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-018",
+        "REQ-028"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.2 Payment callbacks",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "epic_id": "EPIC-008",
+      "title": "Idempotency Implementation for Webhook Handling",
+      "objective": "Implement idempotency using a payload hash or timestamp-based key to ensure duplicate or out-of-order webhook deliveries are handled without double-crediting an order.",
+      "business_value": "Ensures data consistency and prevents financial errors due to duplicate processing of payment events.",
+      "description": "",
+      "priority": "High",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-012",
+        "REQ-026",
+        "REQ-032"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "epic_id": "EPIC-009",
+      "title": "Refund Notification Format and Delivery Time",
+      "objective": "Ensure the customer receives an email notification when a refund is issued, with a defined format and delivery time as specified in the requirements.",
+      "business_value": "Improves customer communication and ensures timely delivery of financial updates, enhancing customer satisfaction and trust.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-017",
+        "REQ-027"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.3 Failed payments",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        },
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        }
+      ],
+      "epic_id": "EPIC-010",
+      "title": "Failure Reason Code Recording and Compliance",
+      "objective": "Record the provider's failure reason code for every failed payment attempt to support failure analysis and compliance with financial regulations.",
+      "business_value": "Provides detailed failure insights and supports auditability, enabling root cause analysis and regulatory compliance.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-014",
+        "REQ-030"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        }
+      ],
+      "epic_id": "EPIC-011",
+      "title": "Webhook Processing Under Normal Load",
+      "objective": "Ensure webhook processing completes within 2 seconds under normal load, with 'normal load' defined as concurrent requests within the system's baseline operational capacity.",
+      "business_value": "Guarantees low-latency response to payment updates, ensuring real-time visibility and system performance.",
+      "description": "",
+      "priority": "High",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-004",
+        "REQ-025"
+      ]
+    },
+    {
+      "classification": "CLARIFICATION_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "epic_id": "EPIC-012",
+      "title": "Refund Amount Constraints and Tolerance",
+      "objective": "Enforce that refund amounts do not exceed the original captured amount, with no tolerance or exception for partial refunds or currency conversion.",
+      "business_value": "Prevents over-refunding and maintains financial accuracy, ensuring compliance with payment rules and system integrity.",
+      "description": "",
+      "priority": "Medium",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-016",
+        "REQ-029"
+      ]
+    },
+    {
+      "classification": "ASSUMPTION",
+      "source_references": [],
+      "epic_id": "EPIC-013",
+      "title": "E-commerce Platform Accepts Online Payments",
+      "objective": "Confirm that the e-commerce platform is designed to accept online payments as part of its core functionality.",
+      "business_value": "Validates the foundational assumption that online payment processing is a supported capability within the platform.",
+      "description": "",
+      "priority": "Low",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": [
+        "REQ-024"
+      ]
+    },
+    {
+      "classification": "AI_RECOMMENDATION",
+      "source_references": [],
+      "epic_id": "EPIC-014",
+      "title": "Future Extension of Payment Processing to Additional Methods",
+      "objective": "Identify and prepare for future extension of payment processing to support additional payment methods beyond card payments.",
+      "business_value": "Aligns with future business needs and enables scalability without requiring a complete re-architecture.",
+      "description": "",
+      "priority": "Low",
+      "dependencies": [],
+      "risks": [],
+      "grounding_requirement_ids": []
+    }
+  ],
+  "stories": [
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.1 Order and payment creation",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-001",
+      "epic_id": "EPIC-001",
+      "title": "As a customer, I want to create an order and initiate payment for the order total so that I can complete my purchase seamlessly.",
+      "persona": "customer",
+      "story_statement": "As a customer, I want to create an order and initiate payment for the order total so that I can complete my purchase seamlessly.",
+      "business_value": "Enables customers to proceed with purchases directly through the online platform.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-001",
+          "given": "A customer navigates to the order creation page.",
+          "when": "The customer submits an order with valid items and total amount.",
+          "then": "The system creates an order and redirects the customer to the payment provider to complete payment."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-007",
+        "REQ-008"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.2 Payment callbacks",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-002",
+      "epic_id": "EPIC-002",
+      "title": "As a system, I want to receive and verify incoming webhook callbacks from Stripe so that I can update the order payment state accurately.",
+      "persona": "system",
+      "story_statement": "As a system, I want to receive and verify incoming webhook callbacks from Stripe so that I can update the order payment state accurately.",
+      "business_value": "Ensures real-time synchronization of payment status with the payment provider.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-002",
+          "given": "A webhook callback is delivered from Stripe to the system endpoint.",
+          "when": "The system verifies the callback using the shared secret and Stripe's signature scheme.",
+          "then": "The system trusts the callback and updates the order payment state accordingly."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-010",
+        "REQ-011"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.3 Failed payments",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-003",
+      "epic_id": "EPIC-003",
+      "title": "As a customer, I want to retry a payment after a failure so that I can complete my purchase without losing progress.",
+      "persona": "customer",
+      "story_statement": "As a customer, I want to retry a payment after a failure so that I can complete my purchase without losing progress.",
+      "business_value": "Improves customer experience by allowing retry of failed payments without requiring order re-creation.",
+      "priority": "Medium",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-003",
+          "given": "A payment attempt fails and the order is marked as 'payment failed'.",
+          "when": "The customer selects to retry the payment using the same order.",
+          "then": "The system marks the order as 'payment pending' and redirects the customer to the payment provider to complete the payment."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-013"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-004",
+      "epic_id": "EPIC-004",
+      "title": "As a support agent, I want to issue a full or partial refund for a completed payment so that I can resolve customer disputes efficiently.",
+      "persona": "support agent",
+      "story_statement": "As a support agent, I want to issue a full or partial refund for a completed payment so that I can resolve customer disputes efficiently.",
+      "business_value": "Enables support agents to process refunds quickly and accurately in response to customer requests.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-004",
+          "given": "A support agent initiates a refund request for a completed payment.",
+          "when": "The refund amount is less than or equal to the original captured amount.",
+          "then": "The system processes the refund and updates the payment record to reflect the new state."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-015",
+        "REQ-016"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.5 Audit logs",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-005",
+      "epic_id": "EPIC-005",
+      "title": "As a system, I want to record every payment state transition in an immutable audit log so that financial compliance and traceability are ensured.",
+      "persona": "system",
+      "story_statement": "As a system, I want to record every payment state transition in an immutable audit log so that financial compliance and traceability are ensured.",
+      "business_value": "Provides a tamper-proof record of all payment state changes for regulatory and audit purposes.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-005",
+          "given": "A payment state transitions from 'pending' to 'authorized'.",
+          "when": "The system receives the transition event from the payment provider or internal logic.",
+          "then": "The system logs the transition in an immutable audit log with a timestamp and the actor (e.g., webhook, support agent)."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-018",
+        "REQ-028"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        }
+      ],
+      "story_id": "US-006",
+      "epic_id": "EPIC-006",
+      "title": "As a system, I want to handle Stripe API timeouts gracefully so that orders are not lost during temporary unavailability.",
+      "persona": "system",
+      "story_statement": "As a system, I want to handle Stripe API timeouts gracefully so that orders are not lost during temporary unavailability.",
+      "business_value": "Ensures order integrity and prevents data loss during transient network issues.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-006",
+          "given": "The Stripe API times out during a payment request.",
+          "when": "The system detects the timeout and receives no response from Stripe.",
+          "then": "The system marks the order as 'payment failed' and logs the failure with a timeout reason, without losing order state."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-006"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.1 Order and payment creation",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-007",
+      "epic_id": "EPIC-007",
+      "title": "As a system, I want to define and implement specific payment states and their triggers so that state transitions are clearly defined and auditable.",
+      "persona": "system",
+      "story_statement": "As a system, I want to define and implement specific payment states and their triggers so that state transitions are clearly defined and auditable.",
+      "business_value": "Provides a clear and consistent model for payment state management that supports auditability and compliance.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-007",
+          "given": "A payment begins in the 'pending' state.",
+          "when": "The system receives a successful authorization from Stripe.",
+          "then": "The system transitions the payment to the 'authorized' state and logs the transition with a timestamp and actor."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-009",
+        "REQ-018",
+        "REQ-028"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.2 Payment callbacks",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-008",
+      "epic_id": "EPIC-008",
+      "title": "As a system, I want to implement idempotency for webhook handling so that duplicate or out-of-order deliveries do not result in double-crediting.",
+      "persona": "system",
+      "story_statement": "As a system, I want to implement idempotency for webhook handling so that duplicate or out-of-order deliveries do not result in double-crediting.",
+      "business_value": "Prevents financial errors caused by duplicate or out-of-order webhook deliveries.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-008",
+          "given": "A webhook callback is delivered with a payload that has already been processed.",
+          "when": "The system checks the idempotency key against a stored record.",
+          "then": "The system rejects the callback and does not update the order state or credit the payment."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-012",
+        "REQ-026",
+        "REQ-032"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-009",
+      "epic_id": "EPIC-009",
+      "title": "As a customer, I want to receive an email notification when a refund is issued so that I am informed of the refund status.",
+      "persona": "customer",
+      "story_statement": "As a customer, I want to receive an email notification when a refund is issued so that I am informed of the refund status.",
+      "business_value": "Improves transparency and customer satisfaction by providing timely updates on refund status.",
+      "priority": "Medium",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-009",
+          "given": "A support agent issues a refund for a completed payment.",
+          "when": "The system processes the refund and updates the payment record.",
+          "then": "The system sends an email notification to the customer with a predefined format and delivered within 1 hour of issuance."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-017",
+        "REQ-027"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.3 Failed payments",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-010",
+      "epic_id": "EPIC-010",
+      "title": "As a system, I want to record the provider's failure reason code for every failed payment attempt so that failure analysis and compliance are supported.",
+      "persona": "system",
+      "story_statement": "As a system, I want to record the provider's failure reason code for every failed payment attempt so that failure analysis and compliance are supported.",
+      "business_value": "Provides detailed failure data for root cause analysis and regulatory compliance.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-010",
+          "given": "A payment attempt fails due to a provider-specific error.",
+          "when": "The system receives a failure response from Stripe.",
+          "then": "The system records the provider's failure reason code in the payment record for audit and analysis."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-014"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "4. Non-Functional Requirements",
+          "chunk_id": "doc_5d8f24da9185-CH-004"
+        }
+      ],
+      "story_id": "US-011",
+      "epic_id": "EPIC-011",
+      "title": "As a system, I want to process webhook callbacks within 2 seconds under normal load so that payment status updates are timely.",
+      "persona": "system",
+      "story_statement": "As a system, I want to process webhook callbacks within 2 seconds under normal load so that payment status updates are timely.",
+      "business_value": "Ensures low-latency response to payment status updates, improving real-time visibility into order state.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-011",
+          "given": "A webhook callback is delivered under normal load conditions (defined as up to 100 concurrent requests).",
+          "when": "The system begins processing the callback.",
+          "then": "The system completes processing within 2 seconds."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-004",
+        "REQ-025"
+      ]
+    },
+    {
+      "classification": "SOURCE_BACKED",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "3.4 Refunds",
+          "chunk_id": "doc_5d8f24da9185-CH-003"
+        }
+      ],
+      "story_id": "US-012",
+      "epic_id": "EPIC-012",
+      "title": "As a system, I want to enforce that refund amounts do not exceed the original captured amount so that financial integrity is maintained.",
+      "persona": "system",
+      "story_statement": "As a system, I want to enforce that refund amounts do not exceed the original captured amount so that financial integrity is maintained.",
+      "business_value": "Prevents over-refunding and maintains accurate financial records.",
+      "priority": "High",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-012",
+          "given": "A support agent attempts to issue a refund for a completed payment.",
+          "when": "The refund amount exceeds the original captured amount.",
+          "then": "The system rejects the refund request and returns an error message indicating the amount is invalid."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.99,
+      "grounding_requirement_ids": [
+        "REQ-016",
+        "REQ-029"
+      ]
+    },
+    {
+      "classification": "ASSUMPTION",
+      "source_references": [
+        {
+          "document_name": "requirements.md",
+          "page_number": null,
+          "section": "7. Constraints",
+          "chunk_id": "CH-007"
+        }
+      ],
+      "story_id": "US-013",
+      "epic_id": "EPIC-013",
+      "title": "As an e-commerce platform, I want to accept online payments for customer orders so that customers can complete purchases directly.",
+      "persona": "e-commerce platform",
+      "story_statement": "As an e-commerce platform, I want to accept online payments for customer orders so that customers can complete purchases directly.",
+      "business_value": "Enables the platform to support online payment processing as a core feature.",
+      "priority": "Low",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-013",
+          "given": "A customer attempts to complete a purchase via the online platform.",
+          "when": "The platform is configured to accept online payments.",
+          "then": "The platform allows the customer to proceed with payment via a secure payment provider."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.8,
+      "grounding_requirement_ids": [
+        "REQ-024"
+      ]
+    },
+    {
+      "classification": "AI_RECOMMENDATION",
+      "source_references": [],
+      "story_id": "US-014",
+      "epic_id": "EPIC-014",
+      "title": "As a system, I want to prepare for future extension of payment processing to support additional payment methods so that we can adapt to market needs.",
+      "persona": "system",
+      "story_statement": "As a system, I want to prepare for future extension of payment processing to support additional payment methods so that we can adapt to market needs.",
+      "business_value": "Provides a scalable foundation for adding new payment methods in future releases without redesigning core components.",
+      "priority": "Low",
+      "acceptance_criteria": [
+        {
+          "criterion_id": "AC-014",
+          "given": "A new payment method is proposed for integration in a future release.",
+          "when": "The system is designed with extensibility in mind.",
+          "then": "The system can accept the new payment method with minimal changes to existing code."
+        }
+      ],
+      "dependencies": [],
+      "assumptions": [],
+      "suggested_story_points": null,
+      "confidence": 0.7,
+      "grounding_requirement_ids": []
+    }
+  ],
+  "technical_tasks": [
+    {
+      "task_id": "TASK-001",
+      "story_id": "US-001",
+      "category": "Integration",
+      "description": "Implement Stripe integration to process card payments via the e-commerce platform.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-002",
+      "story_id": "US-002",
+      "category": "Backend",
+      "description": "Create a webhook endpoint to receive asynchronous payment status callbacks from Stripe.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-003",
+      "story_id": "US-002",
+      "category": "Backend",
+      "description": "Verify incoming webhook callbacks using Stripe's signature scheme with a shared secret configured at deployment time.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-004",
+      "story_id": "US-008",
+      "category": "Backend",
+      "description": "Implement idempotency using a payload hash to prevent double-crediting of orders during duplicate or out-of-order webhook deliveries.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-005",
+      "story_id": "US-003",
+      "category": "Backend",
+      "description": "Handle payment failures by marking the order as 'payment failed' and recording the provider's failure reason code.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-006",
+      "story_id": "US-004",
+      "category": "Backend",
+      "description": "Allow support agents to issue full or partial refunds for completed payments, with amounts not exceeding the original captured amount.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-007",
+      "story_id": "US-005",
+      "category": "Backend",
+      "description": "Record every payment state transition (e.g., pending \u2192 authorized, captured, failed, refunded) in an immutable audit log with timestamp and actor (customer, webhook, support agent).",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-008",
+      "story_id": "US-011",
+      "category": "Backend",
+      "description": "Ensure webhook processing completes within 2 seconds under normal load, with 'normal load' defined as concurrent requests within the system's baseline operational capacity.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-009",
+      "story_id": "US-012",
+      "category": "Backend",
+      "description": "Enforce that refund amounts do not exceed the original captured amount, with no tolerance or exception for partial refunds or currency conversion.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-010",
+      "story_id": "US-010",
+      "category": "Integration",
+      "description": "Expose a webhook endpoint to receive asynchronous payment status updates from Stripe.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-011",
+      "story_id": "US-013",
+      "category": "Security",
+      "description": "Ensure the system does not store raw card numbers to comply with PCI-DSS scope reduction via Stripe-hosted card entry.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-012",
+      "story_id": "US-006",
+      "category": "Monitoring",
+      "description": "Implement a mechanism to handle Stripe API timeouts gracefully to prevent order loss during temporary unavailability.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-013",
+      "story_id": "US-007",
+      "category": "Backend",
+      "description": "Define and implement specific payment states (pending, authorized, captured, failed, refunded) and the triggers for each state transition as per the audit log requirements.",
+      "is_recommendation": true
+    },
+    {
+      "task_id": "TASK-014",
+      "story_id": "US-009",
+      "category": "Backend",
+      "description": "Ensure the customer receives an email notification when a refund is issued, with a defined format and delivery time as specified in the requirements.",
+      "is_recommendation": true
+    }
+  ],
+  "raid": {
+    "risks": [
+      {
+        "classification": "SOURCE_BACKED",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": null,
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "risk_id": "RISK-001",
+        "description": "Webhook processing may fail under high load, leading to delayed or missed payment updates.",
+        "probability": "Medium",
+        "impact": "High",
+        "severity": "High",
+        "mitigation": "Implement load testing with baseline traffic to ensure processing completes within 2 seconds under normal load (REQ-004).",
+        "contingency": "Add a queue-based processing mechanism with a timeout and retry logic to handle bursts of traffic."
+      },
+      {
+        "classification": "CLARIFICATION_BACKED",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": null,
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "risk_id": "RISK-002",
+        "description": "Definition of 'out-of-order' or 'duplicate' webhook deliveries is not explicitly defined, increasing risk of double-crediting.",
+        "probability": "Medium",
+        "impact": "High",
+        "severity": "High",
+        "mitigation": "Define 'out-of-order' as a delivery with a timestamp earlier than the previous delivery, and 'duplicate' as a payload with a matching hash to a previously processed one, as per REQ-026 and REQ-012.",
+        "contingency": "Implement a state machine with a ledger of processed payloads and use a payload hash to validate uniqueness."
+      },
+      {
+        "classification": "CLARIFICATION_BACKED",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": null,
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "risk_id": "RISK-003",
+        "description": "Refund email notification format and delivery time are not explicitly defined, risking non-compliance with customer expectations.",
+        "probability": "Low",
+        "impact": "Medium",
+        "severity": "Medium",
+        "mitigation": "Adopt a standard email template with subject and body as defined in REQ-017 and ensure delivery within 1 hour of refund issuance.",
+        "contingency": "Fallback to a system-generated notification with a human-in-the-loop escalation path if delivery fails."
+      },
+      {
+        "classification": "SOURCE_BACKED",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": null,
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "risk_id": "RISK-004",
+        "description": "Failure to record provider's failure reason code may compromise compliance with financial regulations.",
+        "probability": "Low",
+        "impact": "High",
+        "severity": "High",
+        "mitigation": "Ensure every failed payment attempt logs the provider's failure reason code as required by REQ-014 and REQ-010.",
+        "contingency": "Implement a validation rule to check for the presence of the failure reason code before allowing payment state transitions."
+      },
+      {
+        "classification": "ASSUMPTION",
+        "source_references": [],
+        "risk_id": "RISK-005",
+        "description": "The e-commerce platform accepts online payments as part of its core functionality, which may not be true in all environments.",
+        "probability": "Medium",
+        "impact": "High",
+        "severity": "High",
+        "mitigation": "Validate platform capabilities during integration testing and confirm payment acceptance via configuration or API documentation.",
+        "contingency": "Implement a fallback to a different payment method if online payment is unavailable."
+      }
+    ],
+    "assumptions": [
+      {
+        "classification": "ASSUMPTION",
+        "source_references": [],
+        "assumption_id": "ASSUMP-001",
+        "description": "The e-commerce platform accepts online payments for customer orders as part of its core functionality."
+      }
+    ],
+    "issues": [
+      {
+        "issue_id": "ISSUE-001",
+        "description": "No company standards were retrieved for payment processing or security practices.",
+        "status": "Open",
+        "source_references": []
+      }
+    ],
+    "dependencies": [
+      {
+        "dependency_id": "DEP-001",
+        "blocking_item_id": "EPIC-001",
+        "blocked_item_id": "EPIC-002",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      },
+      {
+        "dependency_id": "DEP-002",
+        "blocking_item_id": "EPIC-007",
+        "blocked_item_id": "EPIC-005",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      },
+      {
+        "dependency_id": "DEP-003",
+        "blocking_item_id": "EPIC-008",
+        "blocked_item_id": "EPIC-002",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      },
+      {
+        "dependency_id": "DEP-004",
+        "blocking_item_id": "EPIC-012",
+        "blocked_item_id": "EPIC-004",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      },
+      {
+        "dependency_id": "DEP-005",
+        "blocking_item_id": "EPIC-011",
+        "blocked_item_id": "EPIC-002",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      },
+      {
+        "dependency_id": "DEP-006",
+        "blocking_item_id": "EPIC-006",
+        "blocked_item_id": "EPIC-001",
+        "dependency_type": "BLOCKS",
+        "description": "",
+        "suggested_resolution": ""
+      }
+    ]
+  },
+  "sprint_plan": {
+    "is_ai_generated_draft": true,
+    "suggested_sprint_count": 4,
+    "sprints": [
+      {
+        "sprint_number": 1,
+        "sprint_goal": "Establish foundational payment processing capabilities and system state definitions.",
+        "story_ids": [
+          "US-001",
+          "US-002",
+          "US-003",
+          "US-004",
+          "US-005",
+          "US-006",
+          "US-007",
+          "US-008"
+        ],
+        "story_point_total": 0
+      },
+      {
+        "sprint_number": 2,
+        "sprint_goal": "Implement payment state management, failure handling, and audit logging with traceability to requirements.",
+        "story_ids": [
+          "US-009",
+          "US-010",
+          "US-011",
+          "US-012"
+        ],
+        "story_point_total": 0
+      },
+      {
+        "sprint_number": 3,
+        "sprint_goal": "Enhance system resilience and support for future extensibility.",
+        "story_ids": [
+          "US-013",
+          "US-014"
+        ],
+        "story_point_total": 0
+      },
+      {
+        "sprint_number": 4,
+        "sprint_goal": "Validate end-to-end payment flow with compliance and notification coverage.",
+        "story_ids": [],
+        "story_point_total": 0
+      }
+    ],
+    "dependency_considerations": [],
+    "unscheduled_story_ids": []
+  },
+  "traceability": {
+    "rows": [
+      {
+        "requirement_id": "REQ-001",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "2. Actors",
+            "chunk_id": "doc_5d8f24da9185-CH-002"
+          }
+        ],
+        "epic_id": null,
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-002",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "2. Actors",
+            "chunk_id": "doc_5d8f24da9185-CH-002"
+          }
+        ],
+        "epic_id": null,
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-003",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "2. Actors",
+            "chunk_id": "doc_5d8f24da9185-CH-002"
+          }
+        ],
+        "epic_id": null,
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-004",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-011",
+        "story_id": "US-011",
+        "acceptance_criterion_ids": [
+          "AC-011"
+        ]
+      },
+      {
+        "requirement_id": "REQ-005",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": null,
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-006",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-006",
+        "story_id": "US-006",
+        "acceptance_criterion_ids": [
+          "AC-006"
+        ]
+      },
+      {
+        "requirement_id": "REQ-007",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.1 Order and payment creation",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": "US-001",
+        "acceptance_criterion_ids": [
+          "AC-001"
+        ]
+      },
+      {
+        "requirement_id": "REQ-008",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.1 Order and payment creation",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": "US-001",
+        "acceptance_criterion_ids": [
+          "AC-001"
+        ]
+      },
+      {
+        "requirement_id": "REQ-009",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.1 Order and payment creation",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-010",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": "US-002",
+        "acceptance_criterion_ids": [
+          "AC-002"
+        ]
+      },
+      {
+        "requirement_id": "REQ-011",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": "US-002",
+        "acceptance_criterion_ids": [
+          "AC-002"
+        ]
+      },
+      {
+        "requirement_id": "REQ-012",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-012",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-008",
+        "story_id": "US-008",
+        "acceptance_criterion_ids": [
+          "AC-008"
+        ]
+      },
+      {
+        "requirement_id": "REQ-013",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.3 Failed payments",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-003",
+        "story_id": "US-003",
+        "acceptance_criterion_ids": [
+          "AC-003"
+        ]
+      },
+      {
+        "requirement_id": "REQ-014",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.3 Failed payments",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-003",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-014",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.3 Failed payments",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-010",
+        "story_id": "US-010",
+        "acceptance_criterion_ids": [
+          "AC-010"
+        ]
+      },
+      {
+        "requirement_id": "REQ-015",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": "US-004",
+        "acceptance_criterion_ids": [
+          "AC-004"
+        ]
+      },
+      {
+        "requirement_id": "REQ-016",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": "US-004",
+        "acceptance_criterion_ids": [
+          "AC-004"
+        ]
+      },
+      {
+        "requirement_id": "REQ-016",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-012",
+        "story_id": "US-012",
+        "acceptance_criterion_ids": [
+          "AC-012"
+        ]
+      },
+      {
+        "requirement_id": "REQ-017",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-017",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-009",
+        "story_id": "US-009",
+        "acceptance_criterion_ids": [
+          "AC-009"
+        ]
+      },
+      {
+        "requirement_id": "REQ-018",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-005",
+        "story_id": "US-005",
+        "acceptance_criterion_ids": [
+          "AC-005"
+        ]
+      },
+      {
+        "requirement_id": "REQ-018",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-007",
+        "story_id": "US-007",
+        "acceptance_criterion_ids": [
+          "AC-007"
+        ]
+      },
+      {
+        "requirement_id": "REQ-019",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "5. Dependencies",
+            "chunk_id": "doc_5d8f24da9185-CH-005"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-020",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "5. Dependencies",
+            "chunk_id": "doc_5d8f24da9185-CH-005"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-021",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "5. Dependencies",
+            "chunk_id": "doc_5d8f24da9185-CH-005"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-022",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "7. Constraints",
+            "chunk_id": "doc_5d8f24da9185-CH-007"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-023",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "7. Constraints",
+            "chunk_id": "doc_5d8f24da9185-CH-007"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-024",
+        "source_references": [],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-024",
+        "source_references": [],
+        "epic_id": "EPIC-013",
+        "story_id": "US-013",
+        "acceptance_criterion_ids": [
+          "AC-013"
+        ]
+      },
+      {
+        "requirement_id": "REQ-025",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-025",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-011",
+        "story_id": "US-011",
+        "acceptance_criterion_ids": [
+          "AC-011"
+        ]
+      },
+      {
+        "requirement_id": "REQ-026",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-026",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-026",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-008",
+        "story_id": "US-008",
+        "acceptance_criterion_ids": [
+          "AC-008"
+        ]
+      },
+      {
+        "requirement_id": "REQ-027",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-027",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-027",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-009",
+        "story_id": "US-009",
+        "acceptance_criterion_ids": [
+          "AC-009"
+        ]
+      },
+      {
+        "requirement_id": "REQ-028",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-028",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-003",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-028",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-005",
+        "story_id": "US-005",
+        "acceptance_criterion_ids": [
+          "AC-005"
+        ]
+      },
+      {
+        "requirement_id": "REQ-028",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.5 Audit logs",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-007",
+        "story_id": "US-007",
+        "acceptance_criterion_ids": [
+          "AC-007"
+        ]
+      },
+      {
+        "requirement_id": "REQ-029",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-029",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-004",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-029",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.4 Refunds",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-012",
+        "story_id": "US-012",
+        "acceptance_criterion_ids": [
+          "AC-012"
+        ]
+      },
+      {
+        "requirement_id": "REQ-030",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-030",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-005",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-030",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "4. Non-Functional Requirements",
+            "chunk_id": "doc_5d8f24da9185-CH-004"
+          }
+        ],
+        "epic_id": "EPIC-010",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-031",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "6. Risks",
+            "chunk_id": "doc_5d8f24da9185-CH-006"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-031",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "6. Risks",
+            "chunk_id": "doc_5d8f24da9185-CH-006"
+          }
+        ],
+        "epic_id": "EPIC-003",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-031",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "6. Risks",
+            "chunk_id": "doc_5d8f24da9185-CH-006"
+          }
+        ],
+        "epic_id": "EPIC-006",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-032",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-001",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-032",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-002",
+        "story_id": null,
+        "acceptance_criterion_ids": []
+      },
+      {
+        "requirement_id": "REQ-032",
+        "source_references": [
+          {
+            "document_name": "requirements.md",
+            "page_number": null,
+            "section": "3.2 Payment callbacks",
+            "chunk_id": "doc_5d8f24da9185-CH-003"
+          }
+        ],
+        "epic_id": "EPIC-008",
+        "story_id": "US-008",
+        "acceptance_criterion_ids": [
+          "AC-008"
+        ]
+      }
+    ]
+  }
+}
