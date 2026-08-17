@@ -20,6 +20,23 @@ def test_upload_document(client):
     assert body["project_id"] == project_id
 
 
+def test_upload_document_captures_document_type_from_form_data(client):
+    """Regression test (Day 21): document_type must be declared with `= Form(...)`, not a
+    plain default, alongside an UploadFile parameter — otherwise FastAPI never reads it from
+    the multipart body and it silently stays empty regardless of what's sent, breaking §9.1's
+    document_types filter for every uploaded document. Found live via §24.9's
+    metadata-filtered retrieval queries returning zero results for a real, indexed document.
+    """
+    project_id = _create_project(client)
+    response = client.post(
+        f"/projects/{project_id}/documents",
+        files={"file": ("requirements.txt", b"Users can log in.", "text/plain")},
+        data={"document_type": "business_requirement"},
+    )
+    assert response.status_code == 201
+    assert response.json()["document_type"] == "business_requirement"
+
+
 def test_upload_duplicate_name_increments_version(client):
     project_id = _create_project(client)
     client.post(

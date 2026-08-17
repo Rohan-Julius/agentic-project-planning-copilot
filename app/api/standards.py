@@ -7,7 +7,7 @@ as project documents — upload, text input, list, delete, index — just unscop
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -37,7 +37,7 @@ def _to_read(document) -> DocumentRead:
 @router.post("", response_model=DocumentRead, status_code=201)
 async def upload_organizational_document(
     file: UploadFile,
-    document_type: str = "",
+    document_type: str = Form(""),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):

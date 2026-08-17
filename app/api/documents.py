@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -37,7 +37,7 @@ def _require_project(session: Session, project_id: str) -> None:
 async def upload_document(
     project_id: str,
     file: UploadFile,
-    document_type: str = "",
+    document_type: str = Form(""),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
