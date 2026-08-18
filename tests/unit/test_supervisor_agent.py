@@ -213,6 +213,31 @@ def test_state_summary_explicitly_flags_pending_final_approval():
     assert "not EXPORT_PLAN" in prompt
 
 
+def test_supervisor_prompt_states_errors_always_override_other_state():
+    """Regression test (Day 22): the Supervisor's main instructions must explicitly state
+    that a recorded error overrides every other consideration — Day 19 found the model
+    reasoning past the errors block toward what later stages "should" be
+    (multiple_errors_recorded, error_recorded_despite_otherwise_complete_state situations;
+    evaluation/reports/day19_routing_evaluation.md). This only proves the instruction is
+    present in the prompt, not that the live model obeys it — see the Day 22 live
+    verification (a targeted rerun of these two situations via
+    evaluation/scripts/run_routing_evaluation.py's SITUATIONS list) for behavioral proof.
+    """
+    state = _base_state()
+    state.update({"errors": ["Ollama unreachable"]})
+    mock_session = Mock()
+
+    with patch("app.agents.supervisor.run_agent") as mock_agent:
+        mock_agent.return_value = SupervisorDecision(
+            next_action="STOP_WITH_ERROR", reason="Test", required_inputs=[],
+        )
+        run_supervisor_agent(state, mock_session)
+
+    prompt = mock_agent.call_args.kwargs["prompt"]
+    assert "PRIORITY RULE" in prompt
+    assert "STOP_WITH_ERROR regardless of how complete" in prompt
+
+
 def test_state_summary_does_not_flag_pending_final_approval_when_already_approved():
     """The new line must not fire once final_approved is True — must not contradict the
     existing "✓ Final approval: APPROVED" line right below it.

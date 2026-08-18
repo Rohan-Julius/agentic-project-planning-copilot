@@ -5,7 +5,7 @@
     "query": "annual leave balance days per year",
     "result_count": 5,
     "top_result_score": 0.5434010864406106,
-    "latency_ms": 79.5,
+    "latency_ms": 96.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -18,10 +18,10 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
-      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
-      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
-      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf "
+      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
+      "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t"
     ]
   },
   {
@@ -30,7 +30,7 @@
     "query": "manager approval of leave requests",
     "result_count": 5,
     "top_result_score": 0.5687840822187381,
-    "latency_ms": 39.6,
+    "latency_ms": 34.1,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -43,10 +43,10 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
-      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
-      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
-      "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t"
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
+      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
+      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b"
     ]
   },
   {
@@ -55,7 +55,7 @@
     "query": "public holiday calendar configuration",
     "result_count": 5,
     "top_result_score": 0.6083292872170762,
-    "latency_ms": 38.2,
+    "latency_ms": 37.6,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -68,10 +68,10 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
-      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
+      "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
-      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
-      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf "
+      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b"
     ]
   },
   {
@@ -79,8 +79,8 @@
     "category": "direct_requirement",
     "query": "webhook signature verification",
     "result_count": 5,
-    "top_result_score": 0.6700552416054253,
-    "latency_ms": 15.6,
+    "top_result_score": 0.5164104392035518,
+    "latency_ms": 16.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -92,11 +92,11 @@
     ],
     "distinct_document_ids": 1,
     "top_5_texts": [
-      "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends",
       "3. Functional Requirements 3.1 Order and payment creation - A customer must be able to create an order and initiate payment for the order total. - The system must integrate with Stripe as the payment ",
+      "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends",
+      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
       "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
-      "6. Risks - Duplicate webhook delivery could cause double-fulfillment if idempotency is not correctly implemented. - A prolonged Stripe outage could block all new order payments platform-wide.",
-      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every "
+      "6. Risks - Duplicate webhook delivery could cause double-fulfillment if idempotency is not correctly implemented. - A prolonged Stripe outage could block all new order payments platform-wide."
     ]
   },
   {
@@ -104,8 +104,8 @@
     "category": "direct_requirement",
     "query": "refund amount cannot exceed captured payment",
     "result_count": 5,
-    "top_result_score": 0.6490154041158006,
-    "latency_ms": 23.2,
+    "top_result_score": 0.5523062896927358,
+    "latency_ms": 24.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -119,8 +119,8 @@
     "top_5_texts": [
       "3. Functional Requirements 3.1 Order and payment creation - A customer must be able to create an order and initiate payment for the order total. - The system must integrate with Stripe as the payment ",
       "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
-      "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends",
       "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
+      "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends",
       "2. Actors - **Customer**: places orders and pays for them online. - **Support Agent**: issues refunds and investigates failed/disputed payments. - **Finance**: reconciles payment records against the p"
     ]
   },
@@ -129,8 +129,8 @@
     "category": "direct_requirement",
     "query": "PCI-DSS card data storage",
     "result_count": 5,
-    "top_result_score": 0.6384459943103946,
-    "latency_ms": 40.2,
+    "top_result_score": 0.5772170108375559,
+    "latency_ms": 39.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -142,11 +142,11 @@
     ],
     "distinct_document_ids": 1,
     "top_5_texts": [
-      "7. Constraints - Only Stripe is in scope for this release; no other payment providers are required. - The system must not store raw card numbers (PCI-DSS scope reduction via Stripe-hosted card entry).",
       "3. Functional Requirements 3.1 Order and payment creation - A customer must be able to create an order and initiate payment for the order total. - The system must integrate with Stripe as the payment ",
-      "6. Risks - Duplicate webhook delivery could cause double-fulfillment if idempotency is not correctly implemented. - A prolonged Stripe outage could block all new order payments platform-wide.",
+      "7. Constraints - Only Stripe is in scope for this release; no other payment providers are required. - The system must not store raw card numbers (PCI-DSS scope reduction via Stripe-hosted card entry).",
+      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
       "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
-      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every "
+      "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends"
     ]
   },
   {
@@ -155,7 +155,7 @@
     "query": "assistant hands off to a human agent",
     "result_count": 1,
     "top_result_score": 0.6673651014900789,
-    "latency_ms": 30.7,
+    "latency_ms": 20.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -176,7 +176,7 @@
     "query": "assistant logs all conversations",
     "result_count": 1,
     "top_result_score": 0.5815173254788667,
-    "latency_ms": 24.3,
+    "latency_ms": 15.2,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -197,7 +197,7 @@
     "query": "when is a story ready for sprint planning",
     "result_count": 5,
     "top_result_score": 0.8153569171613135,
-    "latency_ms": 17.9,
+    "latency_ms": 18.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -226,7 +226,7 @@
     "query": "criteria for marking a story done",
     "result_count": 5,
     "top_result_score": 0.7501691955784545,
-    "latency_ms": 16.7,
+    "latency_ms": 15.1,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -255,7 +255,7 @@
     "query": "user story format template",
     "result_count": 5,
     "top_result_score": 0.7844943581197351,
-    "latency_ms": 16.7,
+    "latency_ms": 14.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -284,7 +284,7 @@
     "query": "storing payment card data securely",
     "result_count": 5,
     "top_result_score": 0.7512825008462488,
-    "latency_ms": 14.6,
+    "latency_ms": 14.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -303,8 +303,8 @@
       "Security Checklist Every story that touches authentication, payment data, or personally identifiable information must confirm the following before it can be marked done: 1. No secrets, API keys, or cr",
       "Definition of Ready A user story is ready for sprint planning when all of the following are true: 1. The story follows the \"As a [persona], I want [capability], so that [business benefit]\" format. 2. ",
       "User Story Template Format As a [persona], I want [capability], so that [business benefit]. Acceptance Criteria Given [initial condition] When [action or event] Then [expected result] Guidance - Write",
-      "Definition of Done Work on a story is complete only when all of the following are true: 1. All acceptance criteria pass, verified by automated tests where practical. 2. Code has been peer-reviewed and",
-      "Estimation Guidance Story points are a relative measure of effort and uncertainty, not hours. Use the modified Fibonacci scale: 1, 2, 3, 5, 8, 13. - 1-2 points: a well-understood change to existing, f"
+      "Estimation Guidance Story points are a relative measure of effort and uncertainty, not hours. Use the modified Fibonacci scale: 1, 2, 3, 5, 8, 13. - 1-2 points: a well-understood change to existing, f",
+      "Definition of Done Work on a story is complete only when all of the following are true: 1. All acceptance criteria pass, verified by automated tests where practical. 2. Code has been peer-reviewed and"
     ]
   },
   {
@@ -313,7 +313,7 @@
     "query": "story point estimation scale",
     "result_count": 5,
     "top_result_score": 0.8256879157427874,
-    "latency_ms": 14.3,
+    "latency_ms": 14.2,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -342,7 +342,7 @@
     "query": "peer review before code is done",
     "result_count": 5,
     "top_result_score": 0.6265296749288681,
-    "latency_ms": 16.4,
+    "latency_ms": 15.5,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -371,7 +371,7 @@
     "query": "notifications sent to employees and managers",
     "result_count": 5,
     "top_result_score": 0.6241025674709092,
-    "latency_ms": 17.2,
+    "latency_ms": 16.4,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -383,9 +383,9 @@
     ],
     "distinct_document_ids": 1,
     "top_5_texts": [
-      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
-      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
+      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
       "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t"
     ]
@@ -395,7 +395,7 @@
     "category": "multi_document",
     "query": "payment failure handling and retry",
     "result_count": 5,
-    "top_result_score": 0.7253335698792035,
+    "top_result_score": 0.5954935478875442,
     "latency_ms": 15.8,
     "correct_source_found": true,
     "citation_valid": true,
@@ -409,10 +409,10 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "3. Functional Requirements 3.1 Order and payment creation - A customer must be able to create an order and initiate payment for the order total. - The system must integrate with Stripe as the payment ",
+      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
       "2. Actors - **Customer**: places orders and pays for them online. - **Support Agent**: issues refunds and investigates failed/disputed payments. - **Finance**: reconciles payment records against the p",
       "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
-      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
-      "6. Risks - Duplicate webhook delivery could cause double-fulfillment if idempotency is not correctly implemented. - A prolonged Stripe outage could block all new order payments platform-wide."
+      "7. Constraints - Only Stripe is in scope for this release; no other payment providers are required. - The system must not store raw card numbers (PCI-DSS scope reduction via Stripe-hosted card entry)."
     ]
   },
   {
@@ -421,7 +421,7 @@
     "query": "quality expectations for a story",
     "result_count": 5,
     "top_result_score": 0.6787032011962533,
-    "latency_ms": 17.1,
+    "latency_ms": 15.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -450,7 +450,7 @@
     "query": "leave request policy",
     "result_count": 5,
     "top_result_score": 0.7535892756477779,
-    "latency_ms": 34.0,
+    "latency_ms": 32.2,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -467,7 +467,7 @@
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
       "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
-      "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a "
+      "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**"
     ]
   },
   {
@@ -476,7 +476,7 @@
     "query": "definition of ready checklist",
     "result_count": 1,
     "top_result_score": 0.6457476718865218,
-    "latency_ms": 23.1,
+    "latency_ms": 16.8,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -497,7 +497,7 @@
     "query": "security requirements for authentication",
     "result_count": 1,
     "top_result_score": 0.7255439192012111,
-    "latency_ms": 16.5,
+    "latency_ms": 14.4,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -518,7 +518,7 @@
     "query": "leave request",
     "result_count": 5,
     "top_result_score": 0.6226403984417099,
-    "latency_ms": 33.6,
+    "latency_ms": 29.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -531,8 +531,8 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
       "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
-      "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
       "3. Functional Requirements 3.1 Leave requests - An employee must be able to submit a leave request specifying a start date, end date, and leave type (annual, sick, unpaid). - The system must reject a ",
       "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t"
     ]
@@ -543,7 +543,7 @@
     "query": "estimation",
     "result_count": 1,
     "top_result_score": 0.6838959494235549,
-    "latency_ms": 41.6,
+    "latency_ms": 38.8,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -564,7 +564,7 @@
     "query": "cryptocurrency payment support",
     "result_count": 5,
     "top_result_score": 0.48995354375902245,
-    "latency_ms": 19.4,
+    "latency_ms": 16.9,
     "correct_source_found": null,
     "citation_valid": true,
     "expect_no_answer": true,
@@ -577,10 +577,10 @@
     "distinct_document_ids": 1,
     "top_5_texts": [
       "2. Actors - **Employee**: submits leave requests, views their own leave balance and history. - **Manager**: approves or rejects leave requests submitted by their direct reports. - **HR Administrator**",
+      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf ",
       "4. Non-Functional Requirements - The system must support at least 500 concurrent employee users. - Leave balance calculations must be accurate to within 0 days of discrepancy (no rounding errors that ",
-      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b",
       "5. Constraints - The system must integrate with the existing company Single Sign-On (SAML 2.0) for authentication. - The system must be accessible via desktop web browser; mobile is not required for t",
-      "6. Assumptions - Public holidays are the same for all employees in the initial release (no per-region calendars). - Leave requests are always submitted by the employee themselves, not on their behalf "
+      "1. Overview HR wants a system for employees to request leave, managers to approve or reject requests, and HR to track leave balances and generate basic reports. This replaces the current spreadsheet-b"
     ]
   },
   {
@@ -588,8 +588,8 @@
     "category": "no_answer",
     "query": "employee vacation accrual policy",
     "result_count": 5,
-    "top_result_score": 0.5377308947195276,
-    "latency_ms": 25.1,
+    "top_result_score": 0.6000123253052206,
+    "latency_ms": 15.8,
     "correct_source_found": null,
     "citation_valid": true,
     "expect_no_answer": true,
@@ -601,11 +601,11 @@
     ],
     "distinct_document_ids": 1,
     "top_5_texts": [
-      "6. Risks - Duplicate webhook delivery could cause double-fulfillment if idempotency is not correctly implemented. - A prolonged Stripe outage could block all new order payments platform-wide.",
       "3. Functional Requirements 3.1 Order and payment creation - A customer must be able to create an order and initiate payment for the order total. - The system must integrate with Stripe as the payment ",
-      "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
+      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every ",
       "5. Dependencies - Payment processing depends on the order-creation flow being completed first; refunds depend on a payment already being in a \"captured\" state. - Webhook signature verification depends",
-      "1. Overview The e-commerce platform needs to accept online payments for customer orders, handle asynchronous payment provider callbacks, support refunds, and maintain a reliable audit trail for every "
+      "4. Non-Functional Requirements - Payment webhook processing must complete within 2 seconds under normal load. - The payment audit log must be retained for 7 years for financial compliance purposes. - ",
+      "7. Constraints - Only Stripe is in scope for this release; no other payment providers are required. - The system must not store raw card numbers (PCI-DSS scope reduction via Stripe-hosted card entry)."
     ]
   },
   {
@@ -614,7 +614,7 @@
     "query": "database schema migration strategy",
     "result_count": 1,
     "top_result_score": 0.5438074668794198,
-    "latency_ms": 23.2,
+    "latency_ms": 15.5,
     "correct_source_found": null,
     "citation_valid": true,
     "expect_no_answer": true,
@@ -635,7 +635,7 @@
     "query": "office building floor plan",
     "result_count": 5,
     "top_result_score": 0.5462261520943709,
-    "latency_ms": 15.5,
+    "latency_ms": 14.3,
     "correct_source_found": null,
     "citation_valid": true,
     "expect_no_answer": true,
@@ -653,9 +653,9 @@
     "top_5_texts": [
       "Definition of Ready A user story is ready for sprint planning when all of the following are true: 1. The story follows the \"As a [persona], I want [capability], so that [business benefit]\" format. 2. ",
       "User Story Template Format As a [persona], I want [capability], so that [business benefit]. Acceptance Criteria Given [initial condition] When [action or event] Then [expected result] Guidance - Write",
-      "Definition of Done Work on a story is complete only when all of the following are true: 1. All acceptance criteria pass, verified by automated tests where practical. 2. Code has been peer-reviewed and",
       "Estimation Guidance Story points are a relative measure of effort and uncertainty, not hours. Use the modified Fibonacci scale: 1, 2, 3, 5, 8, 13. - 1-2 points: a well-understood change to existing, f",
-      "Security Checklist Every story that touches authentication, payment data, or personally identifiable information must confirm the following before it can be marked done: 1. No secrets, API keys, or cr"
+      "Security Checklist Every story that touches authentication, payment data, or personally identifiable information must confirm the following before it can be marked done: 1. No secrets, API keys, or cr",
+      "Definition of Done Work on a story is complete only when all of the following are true: 1. All acceptance criteria pass, verified by automated tests where practical. 2. Code has been peer-reviewed and"
     ]
   },
   {
@@ -664,7 +664,7 @@
     "query": "conversation data retention period",
     "result_count": 1,
     "top_result_score": 0.6415037099292729,
-    "latency_ms": 16.0,
+    "latency_ms": 14.6,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -685,7 +685,7 @@
     "query": "supported communication channels",
     "result_count": 1,
     "top_result_score": 0.6405869957473972,
-    "latency_ms": 18.7,
+    "latency_ms": 14.3,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -706,7 +706,7 @@
     "query": "launch date target",
     "result_count": 1,
     "top_result_score": 0.5561557692390902,
-    "latency_ms": 30.2,
+    "latency_ms": 14.0,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -727,7 +727,7 @@
     "query": "annual leave balance days",
     "result_count": 5,
     "top_result_score": 0.7399596415539708,
-    "latency_ms": 26.7,
+    "latency_ms": 15.2,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -753,7 +753,7 @@
     "query": "leave accrual per month",
     "result_count": 5,
     "top_result_score": 0.7020292296973142,
-    "latency_ms": 17.7,
+    "latency_ms": 14.8,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,
@@ -779,7 +779,7 @@
     "query": "sick leave tracking",
     "result_count": 5,
     "top_result_score": 0.6948446195830887,
-    "latency_ms": 16.7,
+    "latency_ms": 14.6,
     "correct_source_found": true,
     "citation_valid": true,
     "expect_no_answer": false,

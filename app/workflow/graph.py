@@ -10,6 +10,7 @@ is fully functional from Day 7 onward.
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -64,6 +65,7 @@ def supervisor_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict
 
     session = config["configurable"]["session_factory"]()
     try:
+        started = time.perf_counter()
         _log(
             state, config, agent="Supervisor", stage="supervisor",
             action="EVALUATE_STATE", status="IN_PROGRESS",
@@ -74,6 +76,7 @@ def supervisor_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict
         _log(
             state, config, agent="Supervisor", stage="supervisor",
             action=f"RECOMMEND_{decision.next_action}", status="SUCCESS",
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
 
         return {
@@ -86,6 +89,7 @@ def supervisor_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict
         _log(
             state, config, agent="Supervisor", stage="supervisor",
             action="ERROR", status="ERROR", error=error_msg,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return {"errors": [*state["errors"], error_msg]}
 
@@ -105,6 +109,7 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
     attempts = state["requirement_analysis_attempts"] + 1
 
     try:
+        started = time.perf_counter()
         _log(
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="EXTRACT_REQUIREMENTS", status="IN_PROGRESS",
@@ -130,6 +135,7 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="EXTRACT_REQUIREMENTS", status="SUCCESS",
             result_count=len(requirement_ids),
+            duration_ms=round((time.perf_counter() - started) * 1000),
             extra={
                 "question_count": len(unresolved_question_ids),
                 "contradiction_count": len(result.contradictions),
@@ -166,6 +172,7 @@ def requirement_analyst_node(state: ProjectWorkflowState, config: RunnableConfig
         _log(
             state, config, agent="RequirementAnalyst", stage=NODE_REQUIREMENT_ANALYST,
             action="ERROR", status="ERROR", error=error_msg,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return {
             "errors": [*state["errors"], error_msg],
@@ -185,6 +192,7 @@ def planning_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
     from app.tools.project_tools import get_current_plan_version_id
 
     try:
+        started = time.perf_counter()
         _log(
             state, config, agent="Planning", stage=NODE_PLANNING,
             action="GENERATE_PLAN", status="IN_PROGRESS",
@@ -203,6 +211,7 @@ def planning_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
         _log(
             state, config, agent="Planning", stage=NODE_PLANNING,
             action="GENERATE_PLAN", status="SUCCESS",
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
 
         return {
@@ -217,6 +226,7 @@ def planning_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
         _log(
             state, config, agent="Planning", stage=NODE_PLANNING,
             action="ERROR", status="ERROR", error=error_msg,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return {"errors": [*state["errors"], error_msg]}
 
@@ -230,6 +240,7 @@ def reviewer_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
     from app.tools.project_tools import save_reviewer_report
 
     try:
+        started = time.perf_counter()
         _log(
             state, config, agent="Reviewer", stage=NODE_REVIEWER,
             action="REVIEW_PLAN", status="IN_PROGRESS",
@@ -254,6 +265,7 @@ def reviewer_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
             state, config, agent="Reviewer", stage=NODE_REVIEWER,
             action=f"DECISION_{report.decision}", status="SUCCESS",
             result_count=len(report.revision_instructions),
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
 
         return {
@@ -266,6 +278,7 @@ def reviewer_node(state: ProjectWorkflowState, config: RunnableConfig) -> dict:
         _log(
             state, config, agent="Reviewer", stage=NODE_REVIEWER,
             action="ERROR", status="ERROR", error=error_msg,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return {"errors": [*state["errors"], error_msg]}
 
@@ -303,6 +316,7 @@ def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> d
         session.close()
 
     try:
+        started = time.perf_counter()
         _log(
             state, config, agent="Planning", stage=NODE_PLAN_REVISION,
             action="REVISE_PLAN", status="IN_PROGRESS",
@@ -321,6 +335,7 @@ def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> d
         _log(
             state, config, agent="Planning", stage=NODE_PLAN_REVISION,
             action="REVISE_PLAN", status="SUCCESS",
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
 
         return {
@@ -335,6 +350,7 @@ def plan_revision_node(state: ProjectWorkflowState, config: RunnableConfig) -> d
         _log(
             state, config, agent="Planning", stage=NODE_PLAN_REVISION,
             action="ERROR", status="ERROR", error=error_msg,
+            duration_ms=round((time.perf_counter() - started) * 1000),
         )
         return {
             "errors": [*state["errors"], error_msg],

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from app.agents.runner import run_agent
 from app.schemas.requirement import RequirementAnalysisResult
+from app.services.citation_correction import correct_source_references
 from app.tools.project_tools import (
     get_project_information,
     save_requirements,
@@ -200,6 +201,24 @@ CRITICAL:
         prompt=full_prompt,
         output_model=RequirementAnalysisResult,
         max_retries=1,  # §20.1: max 1 retry on schema failure
+    )
+
+    # Deterministic citation-field correction (Day 22, CLAUDE.md "enforced deterministically,
+    # not just prompts"): the LLM only needs chunk_id right — document_name/page_number/
+    # section are always overwritten from the real, recorded chunk metadata.
+    result = result.model_copy(
+        update={
+            "requirements": [
+                req.model_copy(
+                    update={
+                        "source_references": correct_source_references(
+                            req.source_references, project_id, session_factory=session_factory,
+                        )
+                    }
+                )
+                for req in result.requirements
+            ]
+        }
     )
 
     logger.info(

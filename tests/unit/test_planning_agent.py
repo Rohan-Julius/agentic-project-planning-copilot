@@ -233,12 +233,50 @@ def test_user_story_draft_parses_with_source_backed_classification_and_no_citati
         acceptance_criteria=[
             AcceptanceCriterionDraft(given="a cart", when="I submit valid card details", then="the payment is charged")
         ],
+        suggested_story_points=3,
         confidence=0.85,
         classification="SOURCE_BACKED",
         source_references=[],
         grounding_requirement_ids=["REQ-1"],
     )
     assert draft.source_references == []
+
+
+def test_user_story_draft_rejects_a_missing_or_null_story_point_estimate():
+    """Regression test (Day 22, continued): suggested_story_points was changed from
+    `int | None = Field(default=None, ge=0)` to a required, non-nullable `int = Field(ge=1)`
+    on the DRAFT schema specifically — a prompt instruction alone ("REQUIRED, never null") did
+    not change observed live behavior across 2 independent live runs, so null is now removed
+    as a legal completion at the JSON-schema level Ollama's constrained decoding uses. The
+    final UserStory (not this draft) still allows `None` for legitimate downstream cases.
+    """
+    from pydantic import ValidationError
+
+    base_kwargs = dict(
+        epic_id="EPIC-001",
+        title="Pay with card",
+        persona="Customer",
+        story_statement="As a customer, I want to pay by card, so that I can complete checkout.",
+        business_value="Enables revenue",
+        priority="High",
+        acceptance_criteria=[
+            AcceptanceCriterionDraft(given="a cart", when="I submit valid card details", then="the payment is charged")
+        ],
+        confidence=0.85,
+        classification="AI_RECOMMENDATION",
+    )
+
+    with pytest.raises(ValidationError):
+        UserStoryDraft(**base_kwargs)  # missing entirely
+
+    with pytest.raises(ValidationError):
+        UserStoryDraft(**base_kwargs, suggested_story_points=None)  # explicit null
+
+    with pytest.raises(ValidationError):
+        UserStoryDraft(**base_kwargs, suggested_story_points=0)  # below ge=1
+
+    draft = UserStoryDraft(**base_kwargs, suggested_story_points=3)
+    assert draft.suggested_story_points == 3
 
 
 def test_epic_source_references_backfilled_from_grounding_requirement_ids_even_if_llm_citation_wrong(
@@ -409,6 +447,118 @@ def _epics() -> list:
     return _assign_epic_ids(_epics_result().epics, [_requirement()])
 
 
+def _requirement_2() -> Requirement:
+    return Requirement(
+        requirement_id="REQ-2",
+        title="Refunds",
+        description="Customers must be able to request a refund.",
+        category="functional",
+        classification="SOURCE_BACKED",
+        confidence=0.9,
+        source_references=[SourceReference(**CITATION)],
+    )
+
+
+def test_backfill_epic_coverage_returns_epics_unchanged_when_nothing_uncovered():
+    """Day 22: the backfill call must cost nothing (no LLM call at all) when the main epics
+    call already covered every approved requirement — the common case for a well-behaved run.
+    """
+    from app.agents.planning import _backfill_epic_coverage
+
+    epics = _epics()
+    with patch("app.agents.planning.run_agent") as mock_run_agent:
+        result = _backfill_epic_coverage(epics, [_requirement()], [])
+
+    mock_run_agent.assert_not_called()
+    assert result == epics
+
+
+def test_backfill_epic_coverage_assigns_an_uncovered_requirement_to_the_chosen_epic():
+    """Day 22: REQ-2 is not covered by any epic from _epics() (only REQ-1 is grounded on
+    EPIC-001). The backfill call proposes REQ-2 -> EPIC-001; the merged epic must carry both
+    requirement_ids in grounding_requirement_ids and a real citation for the newly added one.
+    """
+    from app.agents.planning import _backfill_epic_coverage
+    from app.schemas.planning import EpicCoverageAssignment, EpicCoverageBackfillResult
+
+    epics = _epics()
+    backfill_result = EpicCoverageBackfillResult(
+        assignments=[EpicCoverageAssignment(requirement_id="REQ-2", epic_id="EPIC-001")]
+    )
+
+    with patch("app.agents.planning.run_agent", return_value=backfill_result):
+        updated = _backfill_epic_coverage(epics, [_requirement(), _requirement_2()], ["REQ-2"])
+
+    epic = next(e for e in updated if e.epic_id == "EPIC-001")
+    assert set(epic.grounding_requirement_ids) == {"REQ-1", "REQ-2"}
+    assert any(ref.chunk_id == CITATION["chunk_id"] for ref in epic.source_references)
+
+
+def test_backfill_epic_coverage_ignores_assignment_to_unknown_epic():
+    """A backfill assignment referencing an epic_id that doesn't exist must be dropped, not
+    trusted — mirrors _filter_stories_with_unknown_epic's existing safety pattern.
+    """
+    from app.agents.planning import _backfill_epic_coverage
+    from app.schemas.planning import EpicCoverageAssignment, EpicCoverageBackfillResult
+
+    epics = _epics()
+    backfill_result = EpicCoverageBackfillResult(
+        assignments=[EpicCoverageAssignment(requirement_id="REQ-2", epic_id="EPIC-999")]
+    )
+
+    with patch("app.agents.planning.run_agent", return_value=backfill_result):
+        updated = _backfill_epic_coverage(epics, [_requirement(), _requirement_2()], ["REQ-2"])
+
+    assert updated == epics
+
+
+def test_run_planning_agent_summary_scope_epics_backfills_uncovered_requirement(session_factory):
+    """Integration-level proof (Day 22): a second requirement (REQ-2) that the main epics call
+    leaves uncovered gets picked up by the automatic backfill pass within
+    run_planning_agent_summary_scope_epics itself, with no extra plumbing required by callers.
+    """
+    from app.agents.planning import run_planning_agent_summary_scope_epics
+    from app.schemas.planning import EpicCoverageAssignment, EpicCoverageBackfillResult
+
+    with session_factory() as session:
+        session.add(
+            RequirementRecord(
+                requirement_id="REQ-2",
+                project_id="PRJ-PLAN",
+                workflow_run_id="RUN-0",
+                title="Refunds",
+                category="functional",
+                classification="SOURCE_BACKED",
+                confidence=0.9,
+                payload_json={
+                    "requirement_id": "REQ-2",
+                    "title": "Refunds",
+                    "description": "Customers must be able to request a refund.",
+                    "category": "functional",
+                    "classification": "SOURCE_BACKED",
+                    "confidence": 0.9,
+                    "source_references": [CITATION],
+                },
+            )
+        )
+        session.commit()
+
+    backfill_result = EpicCoverageBackfillResult(
+        assignments=[EpicCoverageAssignment(requirement_id="REQ-2", epic_id="EPIC-001")]
+    )
+
+    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
+        "app.agents.planning.run_agent",
+        side_effect=[_summary_scope_result(), _epics_result(), backfill_result],
+    ):
+        _, _, epics = run_planning_agent_summary_scope_epics(
+            "PRJ-PLAN", "RUN-1", session_factory=session_factory
+        )
+
+    epic = next(e for e in epics if e.epic_id == "EPIC-001")
+    assert "REQ-2" in epic.grounding_requirement_ids
+
+
 def _stories_draft_result() -> PlanningStoriesResult:
     return PlanningStoriesResult(
         stories=[
@@ -427,6 +577,7 @@ def _stories_draft_result() -> PlanningStoriesResult:
                         given="a cart", when="I submit an invalid card", then="I see an error and am not charged"
                     ),
                 ],
+                suggested_story_points=5,
                 confidence=0.85,
                 classification="SOURCE_BACKED",
                 source_references=[SourceReference(**CITATION)],
@@ -462,6 +613,7 @@ def test_generate_stories_drops_story_referencing_unknown_epic():
                 business_value="None",
                 priority="Low",
                 acceptance_criteria=[AcceptanceCriterionDraft(given="x", when="y", then="z")],
+                suggested_story_points=2,
                 confidence=0.5,
                 classification="AI_RECOMMENDATION",
             )

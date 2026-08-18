@@ -115,6 +115,25 @@ class PlanningEpicsResult(BaseModel):
     epics: list[EpicDraft] = Field(default_factory=list)
 
 
+class EpicCoverageAssignment(BaseModel):
+    """One requirement→epic assignment proposed by the coverage-backfill call (Day 22, spec
+    §24.10 — every approved requirement must be represented somewhere in the plan)."""
+
+    requirement_id: str
+    epic_id: str
+
+
+class EpicCoverageBackfillResult(BaseModel):
+    """Output shape of the Planning Agent's optional coverage-backfill call (Day 22) — only
+    invoked when the main epics call leaves at least one approved requirement uncovered by
+    every epic's grounding_requirement_ids. See `_backfill_epic_coverage` in
+    app/agents/planning.py for why a second, narrowly-scoped call exists on top of the
+    epics-prompt COVERAGE instruction rather than relying on the prompt alone.
+    """
+
+    assignments: list[EpicCoverageAssignment] = Field(default_factory=list)
+
+
 class AcceptanceCriterionDraft(BaseModel):
     """LLM-facing AC shape (DESIGN.md §0.2): identical to AcceptanceCriterion minus
     criterion_id — IDs are minted deterministically after generation."""
@@ -140,7 +159,16 @@ class UserStoryDraft(_DraftGrounding):
     acceptance_criteria: list[AcceptanceCriterionDraft] = Field(min_length=1)
     dependencies: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
-    suggested_story_points: int | None = Field(default=None, ge=0)
+    # Day 22: was `int | None = Field(default=None, ge=0)`, which compiles to a nullable
+    # {"anyOf": [integer, null]} JSON schema for Ollama's format=schema constrained decoding.
+    # A prompt instruction alone ("REQUIRED, never null") did not change the observed live
+    # behavior across 2 independent live runs (0/18, 0/27 stories) — the model consistently
+    # picked null. Making the DRAFT field a required, non-nullable int removes null as a
+    # legal completion at the grammar level, forcing a real number regardless of what the
+    # prose says. The final UserStory below deliberately stays `int | None` — a legitimate
+    # "not yet estimated" state remains representable downstream even if the model, in
+    # constrained decoding, can no longer produce it directly at this call site.
+    suggested_story_points: int = Field(ge=1)
     confidence: float = Field(ge=0.0, le=1.0)
     grounding_requirement_ids: list[str] = Field(default_factory=list)
 

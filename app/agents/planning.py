@@ -20,6 +20,7 @@ from app.schemas.planning import (
     Assumption,
     Dependency,
     Epic,
+    EpicCoverageBackfillResult,
     EpicDraft,
     Issue,
     PlanningEpicsResult,
@@ -42,6 +43,7 @@ from app.schemas.planning import (
 from app.schemas.common import SourceReference
 from app.schemas.requirement import Requirement
 from app.schemas.reviewer import ReviewerIssue
+from app.services.citation_correction import correct_source_references
 from app.tools.project_tools import (
     get_clarification_answers,
     get_project_information,
@@ -112,6 +114,15 @@ PLANNING RULES (spec §7.3, §13.5):
 - {_NO_INVENTED_TECH_RULE}
 - Avoid duplicate epics; each epic should cover a distinct area of the approved scope.
 - Do not propose an "epic_id" — IDs are assigned deterministically after generation.
+- COVERAGE (spec §24.10 — at least 90% of approved requirements must be represented somewhere
+  in the generated plan): every requirement_id listed under APPROVED REQUIREMENTS below must
+  appear in at least one epic's grounding_requirement_ids. Do not silently omit an approved
+  requirement from every epic. If a requirement doesn't warrant a new epic of its own, add its
+  requirement_id to the grounding_requirement_ids of the closest existing epic instead of
+  leaving it uncovered. This does not license inventing a new epic with no real basis — every
+  approved requirement already has evidence by definition (§12.6 still applies to *scope* you
+  add beyond what's approved); the point is not to lose track of an already-approved
+  requirement while grouping.
 
 NO-EVIDENCE BEHAVIOUR (spec §12.6): if the approved requirements do not support a distinct
 epic, do not invent one — return fewer epics rather than fabricate content.
@@ -155,7 +166,7 @@ def _format_answered_clarifications(clarifications: list[ClarificationQuestion])
 def _format_standards(standards: list[RetrievedChunk]) -> str:
     if not standards:
         return "(no company standards retrieved)"
-    return "\n".join(f"[Standard {i}] {s.text[:300]}" for i, s in enumerate(standards[:3], 1))
+    return "\n".join(f"[Standard {i}] {s.text[:300]}" for i, s in enumerate(standards[:5], 1))
 
 
 def _format_revision_instructions(instructions: "list[ReviewerIssue] | None") -> str:
@@ -214,6 +225,102 @@ def _assign_epic_ids(drafts: list[EpicDraft], requirements: list[Requirement]) -
             data["source_references"] = grounded_refs
         epics.append(Epic(epic_id=f"EPIC-{i:03d}", **data))
     return epics
+
+
+_EPIC_COVERAGE_BACKFILL_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
+The EPICS below were already generated, but the requirements listed under UNCOVERED
+REQUIREMENTS were not linked to any of them (spec §24.10 — every approved requirement must be
+represented somewhere in the plan).
+
+TASK: for every requirement listed under UNCOVERED REQUIREMENTS, assign it to the single
+existing epic (from the EPICS list) it fits best. Do not invent a new epic — every requirement
+below already has real evidence and must be placed under one of the existing epics, even if the
+fit isn't perfect; the closest existing epic is better than leaving a requirement uncovered.
+
+{_INJECTION_GUARD}
+
+OUTPUT REQUIREMENTS: return valid JSON matching the EpicCoverageBackfillResult schema exactly —
+one assignment per uncovered requirement_id, each epic_id copied verbatim from the EPICS list
+below."""
+
+
+def _backfill_epic_coverage(
+    epics: list[Epic], requirements: list[Requirement], uncovered_ids: list[str],
+) -> list[Epic]:
+    """Deterministic post-check (Day 22, spec §24.10's 90% requirement-coverage target): the
+    epics prompt's own COVERAGE instruction ("every requirement must appear in some epic") did
+    not reliably close the gap on its own — the baseline was 71.0% (Day 20), and two live
+    reruns after that prompt fix still landed at 75.7%/86.4%. This is the second, mechanical
+    layer: after the main epics call, check which approved requirements truly ended up covered
+    by NO epic, and — only if any remain — make one additional, narrowly-scoped LLM call asking
+    specifically to place just those into an existing epic. Costs nothing extra when coverage
+    is already complete, which is the common case for a well-behaved run.
+    """
+    if not uncovered_ids:
+        return epics
+
+    requirements_by_id = {r.requirement_id: r for r in requirements}
+    epics_by_id = {e.epic_id: e for e in epics}
+    uncovered_reqs = [requirements_by_id[rid] for rid in uncovered_ids if rid in requirements_by_id]
+    if not uncovered_reqs:
+        return epics
+
+    prompt = f"""{_EPIC_COVERAGE_BACKFILL_SYSTEM_PROMPT}
+
+EPICS:
+{_format_epics(epics)}
+
+UNCOVERED REQUIREMENTS:
+{_format_requirements(uncovered_reqs)}"""
+
+    result = run_agent(
+        agent_name="planning_epic_coverage_backfill",
+        prompt=prompt,
+        output_model=EpicCoverageBackfillResult,
+        max_retries=1,
+    )
+
+    uncovered_id_set = set(uncovered_ids)
+    updates: dict[str, list[str]] = {}
+    for assignment in result.assignments:
+        if assignment.requirement_id not in uncovered_id_set:
+            continue
+        if assignment.epic_id not in epics_by_id:
+            continue
+        updates.setdefault(assignment.epic_id, []).append(assignment.requirement_id)
+
+    if not updates:
+        logger.warning(
+            f"[Planning] coverage backfill produced no usable assignments for "
+            f"{len(uncovered_ids)} uncovered requirement(s)"
+        )
+        return epics
+
+    updated_epics = []
+    for epic in epics:
+        added_ids = updates.get(epic.epic_id)
+        if not added_ids:
+            updated_epics.append(epic)
+            continue
+        new_grounding_ids = list(epic.grounding_requirement_ids)
+        for rid in added_ids:
+            if rid not in new_grounding_ids:
+                new_grounding_ids.append(rid)
+        merged_refs = _grounded_source_references(new_grounding_ids, requirements_by_id)
+        updated_epics.append(
+            epic.model_copy(
+                update={
+                    "grounding_requirement_ids": new_grounding_ids,
+                    "source_references": merged_refs or epic.source_references,
+                }
+            )
+        )
+
+    logger.info(
+        f"[Planning] coverage backfill assigned {sum(len(v) for v in updates.values())} "
+        f"previously-uncovered requirement(s) across {len(updates)} epic(s)"
+    )
+    return updated_epics
 
 
 def run_planning_agent_summary_scope_epics(
@@ -340,6 +447,18 @@ COMPANY STANDARDS:
     )
     epics = _assign_epic_ids(epics_result.epics, requirements)
 
+    # Deterministic coverage backfill (Day 22, spec §24.10): check which approved
+    # requirements ended up covered by NO epic, and only if any remain, make one further
+    # narrowly-scoped call to place them (see _backfill_epic_coverage's docstring).
+    covered_ids = {rid for epic in epics for rid in epic.grounding_requirement_ids}
+    uncovered_ids = [r.requirement_id for r in requirements if r.requirement_id not in covered_ids]
+    if uncovered_ids:
+        logger.info(
+            f"[Planning] {len(uncovered_ids)} requirement(s) uncovered after the epics call "
+            f"— running coverage backfill"
+        )
+        epics = _backfill_epic_coverage(epics, requirements, uncovered_ids)
+
     logger.info(f"[Planning] generated {len(epics)} epics")
 
     return summary_scope.summary, summary_scope.scope, epics
@@ -367,10 +486,18 @@ PLANNING RULES (spec §7.3, §13.6):
   copy of the citation attached to the requirement(s) the story comes from — but
   "grounding_requirement_ids" above is what actually gets used.
 - Avoid duplicate or overlapping stories; each story should be a distinct piece of work.
-- suggested_story_points and priority are suggestions, not guaranteed estimates.
+- suggested_story_points is REQUIRED for every story — always provide a positive integer
+  estimate; never leave it null. If COMPANY STANDARDS below includes an estimation/story-point
+  scale, use it (typically a Fibonacci-like sequence: 1, 2, 3, 5, 8, 13); otherwise use your
+  own best-effort judgment based on the story's apparent complexity. This is still a
+  suggestion, not a guaranteed estimate (spec §20.5) — the requirement is that a number is
+  always provided, not that it is authoritative. priority is likewise a suggestion.
 - {_NO_INVENTED_TECH_RULE}
 - Do not propose a "story_id" or a "criterion_id" for any acceptance criterion — those IDs
   are assigned deterministically after generation.
+- COVERAGE: every requirement_id that appears in an epic's grounding_requirement_ids (see
+  EPICS above) should be addressed by at least one story under that same epic — do not leave
+  a requirement covered at the epic level but unaddressed by any story.
 
 NO-EVIDENCE BEHAVIOUR (spec §12.6): if the approved requirements do not support a distinct
 story under a given epic, do not invent one.
@@ -547,6 +674,36 @@ def _assign_tasks_deps_raid_ids(
 
     raid = RaidLog(risks=risks, assumptions=assumptions, issues=issues, dependencies=deps)
     return tasks, raid
+
+
+def _correct_raid_citations(
+    raid: RaidLog, project_id: str, session_factory: "Callable[[], Session] | sessionmaker | None",
+) -> RaidLog:
+    """Risks/Assumptions/Issues (unlike Epics/Stories) carry model-authored source_references
+    directly — RiskDraft/AssumptionDraft/IssueDraft use GroundedMixin, not the
+    _DraftGrounding-plus-backfill pattern Epic/UserStory use (see _grounded_source_references).
+    Correct them the same way Requirements are corrected (Day 22,
+    app/services/citation_correction.py).
+    """
+    def _fix(items):
+        return [
+            item.model_copy(
+                update={
+                    "source_references": correct_source_references(
+                        item.source_references, project_id, session_factory=session_factory,
+                    )
+                }
+            )
+            for item in items
+        ]
+
+    return raid.model_copy(
+        update={
+            "risks": _fix(raid.risks),
+            "assumptions": _fix(raid.assumptions),
+            "issues": _fix(raid.issues),
+        }
+    )
 
 
 def _generate_tasks_deps_raid(
@@ -773,15 +930,24 @@ def run_planning_agent(
         vector_service=vector_service,
     )
     _log_tool("search_company_standards")
+    # Dedicated retrieval for story-point estimation (Day 22): the scope/DoR/DoD query above
+    # doesn't reliably surface sample_documents/estimation_guidance.md (Day 21), so the
+    # stories call gets its own targeted slice on top of the shared standards.
+    estimation_standards = search_company_standards(
+        "story point estimation scale", category="Estimation", top_k=2,
+        vector_service=vector_service,
+    )
+    _log_tool("search_company_standards")
 
     stories = _generate_stories(
-        project_info, requirements, clarifications, standards, epics,
+        project_info, requirements, clarifications, standards + estimation_standards, epics,
         revision_instructions=revision_instructions,
     )
     technical_tasks, raid = _generate_tasks_deps_raid(
         project_info, requirements, clarifications, standards, epics, stories,
         revision_instructions=revision_instructions,
     )
+    raid = _correct_raid_citations(raid, project_id, session_factory)
     sprint_plan = _generate_sprint_plan(project_info, stories, revision_instructions=revision_instructions)
     traceability = _build_traceability_matrix(requirements, epics, stories)
 
