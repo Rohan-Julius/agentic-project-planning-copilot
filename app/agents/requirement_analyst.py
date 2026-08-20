@@ -14,6 +14,7 @@ from app.agents.runner import run_agent
 from app.schemas.requirement import RequirementAnalysisResult
 from app.services.citation_correction import correct_source_references
 from app.tools.project_tools import (
+    save_analysis_findings,
     get_project_information,
     save_requirements,
     save_clarification_questions,
@@ -235,6 +236,8 @@ CRITICAL:
         project_id, result, workflow_run_id, session_factory=session_factory
     )
     _log_tool("save_clarification_questions")
+    save_analysis_findings(project_id, result, workflow_run_id, session_factory=session_factory)
+    _log_tool("save_analysis_findings")
 
     return result
 

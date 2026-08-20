@@ -6,6 +6,8 @@ docs/ARCHITECTURE.md §5b).
 """
 from __future__ import annotations
 
+import datetime as dt
+
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import GroundedMixin, SourceReference
@@ -269,8 +271,12 @@ class DependencyDraft(BaseModel):
     blocking_item_id: str
     blocked_item_id: str
     dependency_type: DependencyType
-    description: str = ""
-    suggested_resolution: str = ""
+    # Day 23: was `str = ""` for both — Day 20 found every sampled dependency had these as the
+    # schema default (empty string), never real content. Day 22 established that an optional
+    # field with a default gets silently omitted under Ollama's constrained decoding; a
+    # required, non-empty field removes that as a legal completion at the schema level.
+    description: str = Field(min_length=1)
+    suggested_resolution: str = Field(min_length=1)
 
 
 class RiskDraft(GroundedMixin):
@@ -354,6 +360,20 @@ class TraceabilityRow(BaseModel):
 
 class TraceabilityMatrix(BaseModel):
     rows: list[TraceabilityRow] = Field(default_factory=list)
+
+
+class PlanVersionSummary(BaseModel):
+    """Metadata for one persisted plan version (spec §22) — no plan_json payload, so listing
+    every version stays cheap. Use GET .../plan/versions/{version_id} for one version's full
+    plan content."""
+
+    version_id: str
+    version_number: int
+    model: str
+    prompt_version: str
+    reviewer_decision: str | None
+    is_current: bool
+    generated_at: dt.datetime
 
 
 class ProjectPlan(BaseModel):

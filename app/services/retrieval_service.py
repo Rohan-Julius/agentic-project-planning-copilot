@@ -54,6 +54,38 @@ def _scroll_corpus(
     return [(point.payload, point.vector) for point in points]
 
 
+def _keep_latest_version_per_document_name(
+    corpus: list[tuple[dict, list[float]]],
+) -> list[tuple[dict, list[float]]]:
+    """Version-aware filtering (Day 23, spec §12.2's `version` field; Day 21 finding): when a
+    project (or the organizational collection) has multiple versions of a same-named document,
+    only the latest version's chunks are searchable by default — a stale, superseded chunk must
+    not compete for a top-K slot alongside its replacement. Document versions are simple
+    incrementing integers as strings ("1.0", "2.0", ...; see
+    document_service._next_version), so comparison is a plain float parse. Groups only by
+    document_name within the already-filtered candidate set, so unrelated documents (different
+    names) and cross-project isolation are both completely unaffected.
+    """
+    def _version_num(payload: dict) -> float:
+        try:
+            return float(payload.get("document_version", "1.0"))
+        except (TypeError, ValueError):
+            return 1.0
+
+    latest_by_name: dict[str, float] = {}
+    for payload, _ in corpus:
+        name = payload.get("document_name")
+        version_num = _version_num(payload)
+        if name not in latest_by_name or version_num > latest_by_name[name]:
+            latest_by_name[name] = version_num
+
+    return [
+        (payload, vector)
+        for payload, vector in corpus
+        if _version_num(payload) >= latest_by_name.get(payload.get("document_name"), 0.0)
+    ]
+
+
 def _dense_scores(query_vector: list[float], corpus: list[tuple[dict, list[float]]]) -> dict[str, float]:
     """Cosine similarity via dot product — every embedding is already normalized (Day 5)."""
     return {
@@ -90,6 +122,7 @@ def hybrid_search(
     document_types: list[str] | None = None,
 ) -> list[RetrievedChunk]:
     corpus = _scroll_corpus(client, collection, project_id, document_types)
+    corpus = _keep_latest_version_per_document_name(corpus)
     if not corpus:
         return []
 

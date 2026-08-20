@@ -209,12 +209,27 @@ def _grounded_source_references(
     return refs
 
 
-def _assign_epic_ids(drafts: list[EpicDraft], requirements: list[Requirement]) -> list[Epic]:
+def _assign_epic_ids(
+    drafts: list[EpicDraft],
+    requirements: list[Requirement],
+    project_id: str,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
+) -> list[Epic]:
     """Deterministic ID minting (DESIGN.md §0.2): the LLM proposes epic content, Python
     assigns identity — IDs are stable, unique, and never LLM-hallucinated. Also backfills
-    source_references from grounding_requirement_ids (see that field's docstring) whenever
-    it resolves to at least one real requirement; falls back to the model's own citation
-    otherwise (e.g. ungrounded, so the dangling-citation validator can still catch it).
+    source_references from grounding_requirement_ids (see that field's docstring) whenever it
+    resolves to at least one real requirement — those are already fully correct, since they
+    come from already-corrected Requirements (app/services/citation_correction.py).
+
+    When grounding doesn't resolve (an ungrounded epic — e.g. the model referenced a
+    requirement_id that doesn't exist), the model's own citation is used as a fallback — Day
+    22 originally left this fallback path uncorrected, which turned out to be the one place a
+    genuinely hallucinated chunk_id could still slip through with a plausible-looking but
+    inaccurate document_name/section (found via a Day 23 live run's `validation_is_valid:
+    false`). Now the fallback is corrected the same way Requirements are: a chunk_id that
+    resolves to a real chunk gets its other fields fixed; a chunk_id that still doesn't
+    resolve stays dangling on purpose, so the deterministic validator can still catch a
+    genuinely fabricated citation.
     """
     requirements_by_id = {r.requirement_id: r for r in requirements}
     epics = []
@@ -223,6 +238,10 @@ def _assign_epic_ids(drafts: list[EpicDraft], requirements: list[Requirement]) -
         grounded_refs = _grounded_source_references(draft.grounding_requirement_ids, requirements_by_id)
         if grounded_refs:
             data["source_references"] = grounded_refs
+        else:
+            data["source_references"] = correct_source_references(
+                draft.source_references, project_id, session_factory=session_factory,
+            )
         epics.append(Epic(epic_id=f"EPIC-{i:03d}", **data))
     return epics
 
@@ -445,7 +464,9 @@ COMPANY STANDARDS:
         output_model=PlanningEpicsResult,
         max_retries=1,  # §20.1: max 1 retry on schema failure
     )
-    epics = _assign_epic_ids(epics_result.epics, requirements)
+    epics = _assign_epic_ids(
+        epics_result.epics, requirements, project_id, session_factory=session_factory,
+    )
 
     # Deterministic coverage backfill (Day 22, spec §24.10): check which approved
     # requirements ended up covered by NO epic, and only if any remain, make one further
@@ -528,12 +549,16 @@ def _filter_stories_with_unknown_epic(
 
 
 def _assign_story_and_ac_ids(
-    drafts: list[UserStoryDraft], requirements: list[Requirement]
+    drafts: list[UserStoryDraft],
+    requirements: list[Requirement],
+    project_id: str,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
 ) -> list[UserStory]:
     """Deterministic ID minting (DESIGN.md §0.2) for stories and their nested acceptance
     criteria — mirrors `_assign_epic_ids`, including the same source_references backfill
-    from grounding_requirement_ids; `criterion_id`s are numbered globally across the whole
-    plan in generation order, `story_id`s per story.
+    from grounding_requirement_ids (and the same Day 23 fallback-path citation correction
+    when grounding doesn't resolve — see `_assign_epic_ids`'s docstring); `criterion_id`s are
+    numbered globally across the whole plan in generation order, `story_id`s per story.
     """
     requirements_by_id = {r.requirement_id: r for r in requirements}
     stories: list[UserStory] = []
@@ -549,6 +574,10 @@ def _assign_story_and_ac_ids(
         grounded_refs = _grounded_source_references(draft.grounding_requirement_ids, requirements_by_id)
         if grounded_refs:
             story_data["source_references"] = grounded_refs
+        else:
+            story_data["source_references"] = correct_source_references(
+                draft.source_references, project_id, session_factory=session_factory,
+            )
         stories.append(
             UserStory(story_id=f"US-{i:03d}", acceptance_criteria=criteria, **story_data)
         )
@@ -561,6 +590,8 @@ def _generate_stories(
     clarifications: list[ClarificationQuestion],
     standards: list[RetrievedChunk],
     epics: list[Epic],
+    project_id: str,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
     revision_instructions: "list[ReviewerIssue] | None" = None,
 ) -> list[UserStory]:
     req_block = _format_requirements(requirements)
@@ -595,7 +626,9 @@ COMPANY STANDARDS:
     )
     known_epic_ids = {e.epic_id for e in epics}
     valid_drafts = _filter_stories_with_unknown_epic(result.stories, known_epic_ids)
-    return _assign_story_and_ac_ids(valid_drafts, requirements)
+    return _assign_story_and_ac_ids(
+        valid_drafts, requirements, project_id, session_factory=session_factory,
+    )
 
 
 _TASKS_DEPS_RAID_SYSTEM_PROMPT = f"""You are an expert Planning Agent for an agile software project.
@@ -609,6 +642,10 @@ PLANNING RULES (spec §7.3, §13.7, §13.8, §13.9):
   project-wide task not tied to one story.
 - Dependencies: "blocking_item_id" and "blocked_item_id" MUST each be one of the exact epic_id
   or story_id values listed below. Never invent an ID.
+- Every dependency's "description" MUST explain concretely why the blocking item must complete
+  first (not a placeholder or restatement of the IDs), and "suggested_resolution" MUST propose
+  a real next step (e.g. "sequence Sprint 2 after the payment-gateway epic is delivered").
+  Never leave either field blank.
 - Risks: set probability, impact, and severity (Low/Medium/High) and provide both a mitigation
   and a contingency.
 - Classify every risk and assumption (spec §12.5): SOURCE_BACKED / CLARIFICATION_BACKED /
@@ -941,7 +978,7 @@ def run_planning_agent(
 
     stories = _generate_stories(
         project_info, requirements, clarifications, standards + estimation_standards, epics,
-        revision_instructions=revision_instructions,
+        project_id, session_factory=session_factory, revision_instructions=revision_instructions,
     )
     technical_tasks, raid = _generate_tasks_deps_raid(
         project_info, requirements, clarifications, standards, epics, stories,

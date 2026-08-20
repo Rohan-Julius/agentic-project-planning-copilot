@@ -279,6 +279,37 @@ def test_user_story_draft_rejects_a_missing_or_null_story_point_estimate():
     assert draft.suggested_story_points == 3
 
 
+def test_dependency_draft_rejects_a_missing_or_empty_description():
+    """Regression test (Day 23): description/suggested_resolution were changed from
+    `str = ""` to a required, non-empty `Field(min_length=1)` — Day 20 found every sampled
+    dependency had these as the schema default (empty string), and Day 22's story-points fix
+    established that an optional field with a default is a legal omission under Ollama's
+    constrained decoding, regardless of prompt wording.
+    """
+    from pydantic import ValidationError
+
+    from app.schemas.planning import DependencyDraft
+
+    base_kwargs = dict(
+        blocking_item_id="EPIC-001", blocked_item_id="EPIC-002", dependency_type="BLOCKS",
+    )
+
+    with pytest.raises(ValidationError):
+        DependencyDraft(**base_kwargs, suggested_resolution="Sequence after EPIC-001.")  # missing description
+
+    with pytest.raises(ValidationError):
+        DependencyDraft(**base_kwargs, description="", suggested_resolution="x")  # empty
+
+    with pytest.raises(ValidationError):
+        DependencyDraft(**base_kwargs, description="x", suggested_resolution="")  # empty resolution
+
+    draft = DependencyDraft(
+        **base_kwargs, description="Payments must exist before refunds can be tested.",
+        suggested_resolution="Sequence EPIC-002 after EPIC-001.",
+    )
+    assert draft.description
+
+
 def test_epic_source_references_backfilled_from_grounding_requirement_ids_even_if_llm_citation_wrong(
     session_factory,
 ):
@@ -323,7 +354,70 @@ def test_epic_source_references_backfilled_from_grounding_requirement_ids_even_i
     assert epics[0].source_references[0].chunk_id != "CH-003"
 
 
-def test_assign_epic_ids_still_rejects_source_backed_epic_with_no_resolvable_grounding():
+def test_epic_fallback_citation_is_still_corrected_when_grounding_does_not_resolve(session_factory):
+    """Regression test (Day 23, found via a live run's validation_is_valid: false): when
+    grounding_requirement_ids doesn't resolve to any real requirement, _assign_epic_ids falls
+    back to the model's own source_references — but that fallback was never corrected against
+    real chunk metadata (unlike the grounded path above, and unlike Requirements/RAID items,
+    Day 22), letting a real chunk_id's document_name/section stay whatever the model invented.
+    Seeds a real DocumentChunkMeta so the correction has something genuine to fix.
+    """
+    from app.models.document import DocumentChunkMeta, DocumentRecord
+
+    with session_factory() as session:
+        session.add(
+            DocumentRecord(
+                document_id="DOC-2", project_id="PRJ-PLAN", document_name="standards.md",
+                file_path="/data/standards.md",
+            )
+        )
+        session.add(
+            DocumentChunkMeta(
+                chunk_id="DOC-2-CH-007", document_id="DOC-2", project_id="PRJ-PLAN",
+                page_number=9, section="Real Section",
+            )
+        )
+        session.commit()
+
+    ungrounded_but_real_chunk = PlanningEpicsResult(
+        epics=[
+            EpicDraft(
+                title="Ungrounded Epic",
+                objective="Not linked to any approved requirement",
+                business_value="Unclear",
+                priority="Low",
+                classification="SOURCE_BACKED",
+                source_references=[
+                    SourceReference(
+                        document_name="invented.pdf", page_number=1, section="Invented Section",
+                        chunk_id="DOC-2-CH-007",  # real chunk_id, wrong other fields
+                    )
+                ],
+                grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
+            )
+        ]
+    )
+
+    from app.schemas.planning import EpicCoverageBackfillResult
+
+    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
+        "app.agents.planning.run_agent",
+        # 3rd item: this epic's grounding doesn't cover REQ-1 either, so the coverage
+        # backfill call (Day 22) also fires — a no-op assignment list is fine, this test is
+        # only about the fallback citation correction, not coverage.
+        side_effect=[_summary_scope_result(), ungrounded_but_real_chunk, EpicCoverageBackfillResult()],
+    ):
+        from app.agents.planning import run_planning_agent_summary_scope_epics
+
+        _, _, epics = run_planning_agent_summary_scope_epics(
+            "PRJ-PLAN", "RUN-1", session_factory=session_factory
+        )
+
+    assert epics[0].source_references[0].document_name == "standards.md"
+    assert epics[0].source_references[0].section == "Real Section"
+
+
+def test_assign_epic_ids_still_rejects_source_backed_epic_with_no_resolvable_grounding(session_factory):
     """The relaxed EpicDraft parsing (no citation check) must not become a silent grounding
     bypass: if grounding_requirement_ids doesn't resolve to any real requirement AND the model
     also left source_references empty, the final Epic construction must still raise — this is
@@ -345,7 +439,7 @@ def test_assign_epic_ids_still_rejects_source_backed_epic_with_no_resolvable_gro
     )
 
     with pytest.raises(ValidationError):
-        _assign_epic_ids([ungrounded_draft], [_requirement()])
+        _assign_epic_ids([ungrounded_draft], [_requirement()], "PRJ-PLAN", session_factory=session_factory)
 
 
 def test_planning_agent_prompt_includes_only_answered_clarifications(session_factory):
@@ -444,7 +538,10 @@ def _requirement() -> Requirement:
 def _epics() -> list:
     from app.agents.planning import _assign_epic_ids
 
-    return _assign_epic_ids(_epics_result().epics, [_requirement()])
+    # session_factory=None is safe here: _epics_result()'s one ungrounded epic (EPIC-002) has
+    # empty source_references, so correct_source_references' fast path (`if not refs: return
+    # refs`) returns before ever touching a session_factory.
+    return _assign_epic_ids(_epics_result().epics, [_requirement()], "PRJ-PLAN", session_factory=None)
 
 
 def _requirement_2() -> Requirement:
@@ -591,7 +688,7 @@ def test_generate_stories_assigns_sequential_ids_and_preserves_citation():
     from app.agents.planning import _generate_stories
 
     with patch("app.agents.planning.run_agent", return_value=_stories_draft_result()):
-        stories = _generate_stories(_project_info(), [_requirement()], [], [], _epics())
+        stories = _generate_stories(_project_info(), [_requirement()], [], [], _epics(), "PRJ-PLAN")
 
     assert len(stories) == 1
     story = stories[0]
@@ -621,7 +718,7 @@ def test_generate_stories_drops_story_referencing_unknown_epic():
     )
 
     with patch("app.agents.planning.run_agent", return_value=bad_result):
-        stories = _generate_stories(_project_info(), [_requirement()], [], [], _epics())
+        stories = _generate_stories(_project_info(), [_requirement()], [], [], _epics(), "PRJ-PLAN")
 
     assert stories == []
 
@@ -630,7 +727,7 @@ def test_generate_stories_prompt_includes_valid_epic_ids_and_format_rules():
     from app.agents.planning import _generate_stories
 
     with patch("app.agents.planning.run_agent", return_value=_stories_draft_result()) as mock_run_agent:
-        _generate_stories(_project_info(), [_requirement()], [], [], _epics())
+        _generate_stories(_project_info(), [_requirement()], [], [], _epics(), "PRJ-PLAN")
 
     prompt = mock_run_agent.call_args.kwargs["prompt"]
     assert "EPIC-001" in prompt
@@ -643,7 +740,7 @@ def test_generate_stories_prompt_includes_valid_epic_ids_and_format_rules():
 def _story():
     from app.agents.planning import _assign_story_and_ac_ids
 
-    return _assign_story_and_ac_ids(_stories_draft_result().stories, [_requirement()])[0]
+    return _assign_story_and_ac_ids(_stories_draft_result().stories, [_requirement()], "PRJ-PLAN")[0]
 
 
 def _tasks_deps_raid_draft_result() -> PlanningTasksDepsRaidResult:
@@ -653,8 +750,16 @@ def _tasks_deps_raid_draft_result() -> PlanningTasksDepsRaidResult:
             TechnicalTaskDraft(story_id="US-999", category="Testing", description="Test payment retries"),
         ],
         dependencies=[
-            DependencyDraft(blocking_item_id="EPIC-001", blocked_item_id="US-001", dependency_type="BLOCKS"),
-            DependencyDraft(blocking_item_id="EPIC-001", blocked_item_id="US-999", dependency_type="BLOCKS"),
+            DependencyDraft(
+                blocking_item_id="EPIC-001", blocked_item_id="US-001", dependency_type="BLOCKS",
+                description="EPIC-001 must ship the payment epic before US-001 can be tested.",
+                suggested_resolution="Sequence US-001 after EPIC-001 is delivered.",
+            ),
+            DependencyDraft(
+                blocking_item_id="EPIC-001", blocked_item_id="US-999", dependency_type="BLOCKS",
+                description="EPIC-001 must ship the payment epic before US-999 can be tested.",
+                suggested_resolution="Sequence US-999 after EPIC-001 is delivered.",
+            ),
         ],
         risks=[
             RiskDraft(

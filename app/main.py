@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    analysis_findings,
     clarifications,
     dashboard,
     documents,
@@ -85,6 +86,7 @@ app.include_router(dashboard.router)
 app.include_router(projects.router)
 app.include_router(documents.router)
 app.include_router(requirements.router)
+app.include_router(analysis_findings.router)
 app.include_router(clarifications.router)
 app.include_router(standards.router)
 app.include_router(workflow.router)

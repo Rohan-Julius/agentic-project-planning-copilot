@@ -135,6 +135,7 @@ def _persist_plan(session_factory, project_id: str, plan_dict: dict) -> None:
 
 def main(client, baseline_plan: dict, project_id: str) -> list[dict]:
     from app.agents.reviewer import run_reviewer_agent
+    from app.tools.validation_tools import validate_project_plan
     from pydantic import ValidationError
 
     session_factory = client.session_factory
@@ -148,14 +149,28 @@ def main(client, baseline_plan: dict, project_id: str) -> list[dict]:
                 project_id, f"RUN-seed-{name}", session_factory=session_factory,
             )
             elapsed = round(time.perf_counter() - start, 1)
+            # Day 23: capture every ReviewerReport issue-list field under its own real name
+            # (never merged into one "issues" list — that exact mixing of ReviewerIssue dicts
+            # and plain strings was the root cause of a real Day 20 crash, see write_report's
+            # docstring below) plus validate_project_plan's own direct structural-error list,
+            # so attribution (deterministic backstop vs. genuine LLM judgement) is confirmed,
+            # not inferred (Day 20's backlog ask).
+            structural = validate_project_plan(project_id, session_factory=session_factory)
             results.append({
                 "seed": name,
                 "outcome": "reviewer_ran",
                 "decision": report.decision,
                 "duration_seconds": elapsed,
-                "issues": [i.model_dump(mode="json") for i in report.unsupported_claims]
-                + [i.model_dump(mode="json") for i in report.duplicate_stories]
-                + [i.model_dump(mode="json") for i in report.dependency_issues],
+                "unsupported_claims": [i.model_dump(mode="json") for i in report.unsupported_claims],
+                "duplicate_stories": [i.model_dump(mode="json") for i in report.duplicate_stories],
+                "missing_acceptance_criteria": [i.model_dump(mode="json") for i in report.missing_acceptance_criteria],
+                "weak_acceptance_criteria": [i.model_dump(mode="json") for i in report.weak_acceptance_criteria],
+                "traceability_gaps": [i.model_dump(mode="json") for i in report.traceability_gaps],
+                "dependency_issues": [i.model_dump(mode="json") for i in report.dependency_issues],
+                "missing_requirements": list(report.missing_requirements),
+                "warnings": list(report.warnings),
+                "structural_errors": [e.model_dump(mode="json") for e in structural.errors],
+                "structural_is_valid": structural.is_valid,
             })
         except ValidationError as exc:
             elapsed = round(time.perf_counter() - start, 1)
@@ -180,6 +195,31 @@ def main(client, baseline_plan: dict, project_id: str) -> list[dict]:
     return results
 
 
+_ISSUE_LIST_FIELDS = [
+    "unsupported_claims", "duplicate_stories", "missing_acceptance_criteria",
+    "weak_acceptance_criteria", "traceability_gaps", "dependency_issues",
+]
+
+
+def _note_for(r: dict) -> str:
+    """Day 23: a single human-readable summary column, built from the correct shape per
+    outcome — never assumes `r["issues"]` exists (reviewer_ran results no longer have that
+    key at all; schema_rejected/unexpected_error results still do, as a plain string list).
+    This replaces the Day 20 bug's exact failure mode (str-slicing a dict as if it were
+    always a string) by never mixing the two shapes into one field in the first place.
+    """
+    if r["outcome"] == "reviewer_ran":
+        counts = {field: len(r[field]) for field in _ISSUE_LIST_FIELDS if r[field]}
+        structural_note = (
+            f"structural_errors={len(r['structural_errors'])}" if r["structural_errors"] else ""
+        )
+        parts = [f"{field}={count}" for field, count in counts.items()] + (
+            [structural_note] if structural_note else []
+        )
+        return "; ".join(parts)[:150] if parts else "(no issues reported)"
+    return str(r["issues"][0])[:150] if r.get("issues") else ""
+
+
 def write_report(results: list[dict]) -> None:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -189,13 +229,9 @@ def write_report(results: list[dict]) -> None:
         "|---|---|---|---|---|",
     ]
     for r in results:
-        # issues[0] is a plain string for schema_rejected/unexpected_error outcomes, but a
-        # ReviewerIssue dict (from .model_dump()) for reviewer_ran outcomes — str() it first
-        # so slicing always works regardless of which shape it is.
-        note = str(r["issues"][0])[:150] if r["issues"] else ""
         lines.append(
             f"| {r['seed']} | {r['outcome']} | {r['decision']} | "
-            f"{r['duration_seconds']} | {note} |"
+            f"{r['duration_seconds']} | {_note_for(r)} |"
         )
     (REPORTS_DIR / "day20_seeded_error_evaluation.md").write_text("\n".join(lines))
     (REPORTS_DIR / "day20_seeded_error_evaluation.json").write_text(

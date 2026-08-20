@@ -156,20 +156,20 @@ def build_queries(project_ids: dict[str, str]) -> list[dict]:
         {"category": "company_standard", "is_standard": True, "query": "story point estimation scale", "expect_document": "estimation_guidance.md", "expect_text_contains": "Fibonacci"},
         {"category": "company_standard", "is_standard": True, "query": "peer review before code is done", "expect_document": "definition_of_done.md", "expect_text_contains": "review"},
     ]
-    # 3. Multi-document retrieval (4). Honest limitation of this dataset: every scenario
+    # 3. Multi-document retrieval (3). Honest limitation of this dataset: every scenario
     # project has exactly one *distinct, unrelated* document, so no query here can span two
-    # genuinely unrelated documents — 3 queries test the closest available proxy (spanning
-    # multiple *sections* of one document, a real hybrid-search capability), checked via
-    # `expect_min_distinct_sections`. The 4th targets the "versioning" project, the only place
-    # with >1 real `document_id` — but both share one `document_name` (that's the whole point
-    # of versioning working correctly, see Task 2), so it's checked via
-    # `expect_min_distinct_document_ids`, and is honestly a *version-spanning* multi-document
-    # case, not an unrelated-content one.
+    # genuinely unrelated documents — these 3 queries test the closest available proxy
+    # (spanning multiple *sections* of one document, a real hybrid-search capability), checked
+    # via `expect_min_distinct_sections`. Day 21 also had a 4th query here targeting the
+    # "versioning" project's >1 real `document_id` via `expect_min_distinct_document_ids: 2` —
+    # that query is retired as of Day 23's retrieval version-awareness fix (see the
+    # document_versions block below), since "both versions returned together" is now the bug
+    # being actively prevented, not a feature to demonstrate. A genuine multi-unrelated-
+    # document fixture still doesn't exist in this dataset.
     queries += [
         {"category": "multi_document", "project_id": s1, "query": "notifications sent to employees and managers", "expect_min_distinct_sections": 2},
         {"category": "multi_document", "project_id": s2, "query": "payment failure handling and retry", "expect_min_distinct_sections": 2},
         {"category": "multi_document", "is_standard": True, "query": "quality expectations for a story", "expect_min_distinct_sections": 2},
-        {"category": "multi_document", "project_id": project_ids["versioning"], "query": "leave request policy", "expect_min_distinct_document_ids": 2},
     ]
     # 4. Metadata-filtered retrieval (4)
     queries += [
@@ -191,12 +191,20 @@ def build_queries(project_ids: dict[str, str]) -> list[dict]:
         {"category": "conflicting", "project_id": s3, "query": "supported communication channels", "expect_conflict_terms": ["chat", "email"]},
         {"category": "conflicting", "project_id": s3, "query": "launch date target", "expect_conflict_terms": ["Q2", "Q3"]},
     ]
-    # 7. Old and new document versions (3)
+    # 7. Old and new document versions (4). Day 23: retrieval is now version-aware (was Day
+    # 21's headline finding, previously untested here beyond `expect_version_note`, which
+    # asserted nothing at all). Real assertions now: only the latest version's chunks come
+    # back (`expect_max_distinct_document_ids: 1`), and the *content* reflects v2.0's real
+    # changes, not v1.0's superseded values (the exact strings setup_projects() writes into
+    # the modified copy: "20 days" -> "25 days", "1.67 days/month" -> "2.08 days/month"). The
+    # 4th query is the retired multi_document proxy from above, now testing the same thing
+    # directly instead of the version-spanning-is-a-feature framing Day 21 originally used.
     v = project_ids["versioning"]
     queries += [
-        {"category": "document_versions", "project_id": v, "query": "annual leave balance days", "expect_version_note": True},
-        {"category": "document_versions", "project_id": v, "query": "leave accrual per month", "expect_version_note": True},
-        {"category": "document_versions", "project_id": v, "query": "sick leave tracking", "expect_version_note": True},
+        {"category": "document_versions", "project_id": v, "query": "annual leave balance days", "expect_text_contains": "25 days", "expect_max_distinct_document_ids": 1},
+        {"category": "document_versions", "project_id": v, "query": "leave accrual per month", "expect_text_contains": "2.08 days/month", "expect_max_distinct_document_ids": 1},
+        {"category": "document_versions", "project_id": v, "query": "sick leave tracking", "expect_max_distinct_document_ids": 1},
+        {"category": "document_versions", "project_id": v, "query": "leave request policy", "expect_max_distinct_document_ids": 1},
     ]
 
     for i, q in enumerate(queries, 1):
@@ -230,6 +238,10 @@ def run_query(client, spec: dict) -> dict:
         correct_source_found = len(sections) >= spec["expect_min_distinct_sections"]
     if spec.get("expect_min_distinct_document_ids"):
         correct_source_found = len(document_ids) >= spec["expect_min_distinct_document_ids"]
+    if spec.get("expect_max_distinct_document_ids") is not None:
+        correct_source_found = (
+            correct_source_found and len(document_ids) <= spec["expect_max_distinct_document_ids"]
+        )
 
     citation_valid = all(
         r.chunk_id and r.document_name and (r.section or r.page_number is not None or True)

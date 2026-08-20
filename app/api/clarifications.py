@@ -25,6 +25,15 @@ def _require_project(session: Session, project_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
 
 
+def _require_project_dependency(
+    project_id: str, session: Session = Depends(get_session)
+) -> None:
+    """Same check as _require_project, structured as a FastAPI dependency (Day 23) so it
+    resolves before sibling Depends() params like get_vector_service — see Day 17's
+    dependency-ordering finding, docs/PROJECT_PLAN.md."""
+    _require_project(session, project_id)
+
+
 @router.get("", response_model=list[ClarificationQuestion])
 def list_clarifications(project_id: str, session: Session = Depends(get_session)):
     _require_project(session, project_id)
@@ -48,6 +57,7 @@ def submit_answers(
 def approve_clarifications(
     project_id: str,
     session: Session = Depends(get_session),
+    _project_exists: None = Depends(_require_project_dependency),
     checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
     session_factory: sessionmaker = Depends(get_sessionmaker),
     vector_service: VectorService = Depends(get_vector_service),
@@ -57,7 +67,6 @@ def approve_clarifications(
     not blockers (the user explicitly choosing to proceed with unresolved items, per §11).
     Never called automatically anywhere in this codebase (§20.5).
     """
-    _require_project(session, project_id)
     run = session.scalar(
         select(WorkflowRun)
         .where(WorkflowRun.project_id == project_id)

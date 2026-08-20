@@ -27,15 +27,26 @@ def _require_project(session: Session, project_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
 
 
+def _require_project_dependency(
+    project_id: str, session: Session = Depends(get_session)
+) -> None:
+    """Same check as _require_project, structured as a FastAPI dependency (Day 23) so it
+    resolves before sibling Depends() params like get_vector_service — FastAPI resolves
+    declared dependencies in signature order, so declaring this one first means a nonexistent
+    project now 404s even when Qdrant is also down (previously 503 — see Day 17's
+    dependency-ordering finding, docs/PROJECT_PLAN.md)."""
+    _require_project(session, project_id)
+
+
 @router.post("/start", response_model=WorkflowRunRead)
 def start_workflow(
     project_id: str,
     session: Session = Depends(get_session),
+    _project_exists: None = Depends(_require_project_dependency),
     checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
     session_factory: sessionmaker = Depends(get_sessionmaker),
     vector_service: VectorService = Depends(get_vector_service),
 ):
-    _require_project(session, project_id)
     existing = session.scalar(
         select(WorkflowRun)
         .where(WorkflowRun.project_id == project_id)
@@ -58,11 +69,13 @@ def start_workflow(
 def workflow_status(
     project_id: str,
     session: Session = Depends(get_session),
+    _project_exists: None = Depends(_require_project_dependency),
     checkpointer: BaseCheckpointSaver = Depends(get_checkpointer),
     session_factory: sessionmaker = Depends(get_sessionmaker),
     vector_service: VectorService = Depends(get_vector_service),
 ):
-    _require_project(session, project_id)
+    """Also depends on get_vector_service (via engine.get_pending_gate_stage below) — same
+    dependency-ordering fix as start_workflow above (Day 23), found while fixing that one."""
     run = session.scalar(
         select(WorkflowRun)
         .where(WorkflowRun.project_id == project_id)

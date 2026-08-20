@@ -43,6 +43,42 @@ class RequirementRecord(Base):
     )
 
 
+class ContradictionRecord(Base):
+    __tablename__ = "contradictions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "contradiction_id", name="uq_contradiction_project_cid"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    contradiction_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[str] = mapped_column(
+        String, ForeignKey("projects.project_id"), index=True
+    )
+    payload_json: Mapped[dict] = mapped_column(JSON)
+    workflow_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
+class AmbiguityRecord(Base):
+    __tablename__ = "ambiguities"
+    __table_args__ = (
+        UniqueConstraint("project_id", "ambiguity_id", name="uq_ambiguity_project_aid"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ambiguity_id: Mapped[str] = mapped_column(String, index=True)
+    project_id: Mapped[str] = mapped_column(
+        String, ForeignKey("projects.project_id"), index=True
+    )
+    payload_json: Mapped[dict] = mapped_column(JSON)
+    workflow_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=lambda: dt.datetime.now(dt.timezone.utc)
+    )
+
+
 class ClarificationQuestionRecord(Base):
     __tablename__ = "clarification_questions"
     __table_args__ = (

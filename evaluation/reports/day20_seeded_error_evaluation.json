@@ -1,88 +1,36 @@
 [
   {
-    "seed": "story_without_epic",
-    "outcome": "schema_rejected_before_review",
-    "decision": null,
+    "seed": "noop_seed",
+    "outcome": "reviewer_ran",
+    "decision": "REVISION_REQUIRED",
     "duration_seconds": 0.0,
-    "issues": [
-      "1 validation error for ProjectPlan\n  Value error, story 'US-001' references unknown epic_id 'EPIC-999-DOES-NOT-EXIST' (every story must belong to an epic in the same plan, spec \u00a77.3/\u00a730) [type=value_error, input_value={'summary': {'business_pr...ion_ids': ['AC-010']}]}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
-    ]
-  },
-  {
-    "seed": "missing_acceptance_criteria",
-    "outcome": "schema_rejected_before_review",
-    "decision": null,
-    "duration_seconds": 0.0,
-    "issues": [
-      "1 validation error for ProjectPlan\nstories.0.acceptance_criteria\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short"
-    ]
-  },
-  {
-    "seed": "invalid_citation",
-    "outcome": "reviewer_ran",
-    "decision": "REVISION_REQUIRED",
-    "duration_seconds": 170.9,
-    "issues": [
+    "unsupported_claims": [
       {
-        "artifact_id": "REQ-017",
-        "issue_type": "unsupported_claim",
-        "description": "The requirement states that a prolonged Stripe outage could block all new order payments platform-wide, but this is presented as a fact without a source or evidence in the plan. No supporting requirement or story references this risk in a way that validates it as a real, supported concern.",
-        "recommended_action": "Add a source-backed requirement or story that explicitly addresses the impact of a prolonged Stripe outage and the system's response, such as a fallback mechanism or alternative payment path."
-      },
-      {
-        "artifact_id": "REQ-018",
-        "issue_type": "unsupported_claim",
-        "description": "The requirement states that only Stripe is in scope for this release, but this is presented as a fact without a source or evidence in the plan. No supporting requirement or story references this constraint in a way that validates it as a real, supported decision.",
-        "recommended_action": "Add a source-backed requirement or story that explicitly confirms the scope of payment providers and the rationale for excluding other providers, such as a technical or compliance justification."
+        "artifact_id": "US-001",
+        "issue_type": "UNSUPPORTED_CLAIM",
+        "description": "x",
+        "recommended_action": "y"
       }
-    ]
-  },
-  {
-    "seed": "duplicate_story",
-    "outcome": "reviewer_ran",
-    "decision": "REVISION_REQUIRED",
-    "duration_seconds": 250.6,
-    "issues": [
+    ],
+    "duplicate_stories": [],
+    "missing_acceptance_criteria": [],
+    "weak_acceptance_criteria": [
       {
-        "artifact_id": "US-001-DUP",
-        "issue_type": "duplicate_stories",
-        "description": "A near-identical story [US-001-DUP] exists with the same text and acceptance criteria as [US-001], violating uniqueness and leading to potential confusion or redundancy in implementation.",
-        "recommended_action": "Remove the duplicate story [US-001-DUP] as it is a near-identical copy of [US-001]."
-      },
-      {
-        "artifact_id": "DEP-023",
-        "issue_type": "dependency_issues",
-        "description": "The dependency [DEP-023] links EPIC-023 (Mobile Device Support) to EPIC-024 (PCI-DSS Compliance), but there is no clear evidence that mobile device support directly impacts PCI-DSS compliance or that the mobile interface uses Stripe-hosted card entry. This creates a logical gap in dependency justification.",
-        "recommended_action": "Re-evaluate the dependency chain and ensure that the mobile device support directly ties into the PCI-DSS compliance mechanism via Stripe-hosted card entry."
+        "artifact_id": "US-002",
+        "issue_type": "WEAK_AC",
+        "description": "x",
+        "recommended_action": "y"
       }
-    ]
-  },
-  {
-    "seed": "unsupported_requirement",
-    "outcome": "reviewer_ran",
-    "decision": "REVISION_REQUIRED",
-    "duration_seconds": 295.9,
-    "issues": [
-      {
-        "artifact_id": "US-022",
-        "issue_type": "unsupported_claim",
-        "description": "The claim that the system will support mobile devices is presented as a fact without direct support from a requirement or epic, and is only marked as an assumption (ASSUMPTION). It lacks a clear linkage to a functional requirement or acceptance criterion that validates mobile device support.",
-        "recommended_action": "Add a requirement (e.g., REQ-035) that explicitly defines mobile device support and includes acceptance criteria for responsive design and functionality on mobile browsers. Link this requirement to EPIC-023 and ensure it is traceable to the original requirement [REQ-023]."
-      }
-    ]
-  },
-  {
-    "seed": "circular_dependency",
-    "outcome": "reviewer_ran",
-    "decision": "REVISION_REQUIRED",
-    "duration_seconds": 203.9,
-    "issues": [
-      {
-        "artifact_id": "US-022",
-        "issue_type": "unsupported_claim",
-        "description": "The story references mobile device support as a feature, but the claim is marked as an assumption (ASSUMPTION) without being backed by a requirement or validated source. There is no explicit requirement (REQ-023) that is fully supported or referenced in the plan, and the assumption lacks a source citation.",
-        "recommended_action": "Add a source-backed requirement (e.g., REQ-023) that explicitly defines mobile device support and links it to a valid requirement or epic. Ensure the assumption is properly cited and validated."
-      }
-    ]
+    ],
+    "traceability_gaps": [],
+    "dependency_issues": [],
+    "missing_requirements": [
+      "REQ-9 not represented"
+    ],
+    "warnings": [
+      "Sprint 3 has no stories"
+    ],
+    "structural_errors": [],
+    "structural_is_valid": true
   }
 ]

@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.database.session import get_sessionmaker
 from app.models.plan_artifact import PlanArtifactVersion
-from app.models.requirement import ClarificationQuestionRecord, RequirementRecord
+from app.models.requirement import (
+    AmbiguityRecord,
+    ClarificationQuestionRecord,
+    ContradictionRecord,
+    RequirementRecord,
+)
 from app.schemas.clarification import ClarificationAnswerInfo, ClarificationQuestion
 from app.schemas.planning import ProjectPlan
 from app.schemas.project import ProjectInfo
@@ -156,6 +161,50 @@ def save_clarification_questions(
                 payload_json=q_pydantic.model_dump(),  # Full Pydantic payload
             )
             session.add(q_record)
+        session.commit()
+    finally:
+        session.close()
+
+
+def save_analysis_findings(
+    project_id: str,
+    analysis_result: RequirementAnalysisResult,
+    workflow_run_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> None:
+    """Persist contradictions and ambiguities from the Requirement Analyst Agent (Day 23,
+    spec §13.1) — previously generated but discarded after being used to build clarification
+    questions. Same supersede-on-rerun pattern as save_requirements/
+    save_clarification_questions: a fresh analysis replaces the prior one.
+    """
+    session_factory = session_factory or get_sessionmaker()
+    session = session_factory()
+    try:
+        session.query(ContradictionRecord).filter(
+            ContradictionRecord.project_id == project_id
+        ).delete()
+        session.query(AmbiguityRecord).filter(
+            AmbiguityRecord.project_id == project_id
+        ).delete()
+        for c in analysis_result.contradictions:
+            session.add(
+                ContradictionRecord(
+                    contradiction_id=c.contradiction_id,
+                    project_id=project_id,
+                    workflow_run_id=workflow_run_id,
+                    payload_json=c.model_dump(mode="json"),
+                )
+            )
+        for a in analysis_result.ambiguities:
+            session.add(
+                AmbiguityRecord(
+                    ambiguity_id=a.ambiguity_id,
+                    project_id=project_id,
+                    workflow_run_id=workflow_run_id,
+                    payload_json=a.model_dump(mode="json"),
+                )
+            )
         session.commit()
     finally:
         session.close()
