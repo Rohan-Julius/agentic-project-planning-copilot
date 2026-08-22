@@ -245,9 +245,11 @@ instead of synchronous requests).
 | Idea | Status |
 |---|---|
 | Hybrid keyword + vector search | Done — shipped as part of the core retrieval pipeline, not a stretch add-on |
-| Plan version comparison | Partial — every version is fully queryable via the API; a UI diff view isn't built yet |
+| Plan version comparison | Done — a version-history page diffs any two versions' Epics/Stories/Technical tasks/Dependencies (added/removed/modified/unchanged). The diff is whole-object-equality based, not field-level, and RAID/sprint-plan aren't diffed (no stable diff identity) |
+| Selective artifact regeneration | Done — sprint plan alone, or tasks/dependencies/RAID together, can be regenerated without rebuilding the whole plan; regenerating resets plan approval (§20.5). Epics/stories are deliberately not selectively regeneratable — they're the ID backbone everything downstream keys off of |
+| Requirement-change impact analysis | Done — shows every epic/story/task/dependency traceable to a requirement, reusing the existing traceability matrix (fully deterministic, no new LLM call). RAID items aren't covered — they're not keyed to individual requirements in that matrix |
 | Local reranking model | Deliberately dropped — the pipeline's generation latency (not retrieval) was already the bottleneck, so adding another local-model inference pass wasn't worth it |
-| Direct Jira issue creation, visual dependency graph, DOCX export, requirement-change impact analysis, user-selectable models, selective artifact regeneration, agent execution replay, project-plan chat interface | Not attempted — each is a genuinely separate feature, not a small extension of what exists |
+| Direct Jira issue creation, visual dependency graph, DOCX export, user-selectable models, agent execution replay, project-plan chat interface | Not attempted — each is a genuinely separate feature, not a small extension of what exists |
 
 ### What this build's own experience surfaced
 

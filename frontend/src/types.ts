@@ -267,6 +267,24 @@ export interface ProjectPlan {
   traceability: TraceabilityMatrix
 }
 
+export interface RequirementImpact {
+  requirement_id: string
+  epics: Epic[]
+  stories: UserStory[]
+  technical_tasks: TechnicalTask[]
+  dependencies: Dependency[]
+}
+
+export interface PlanVersionSummary {
+  version_id: string
+  version_number: number
+  model: string
+  prompt_version: string
+  reviewer_decision: string | null
+  is_current: boolean
+  generated_at: string
+}
+
 export interface ReviewerIssue {
   artifact_id: string
   issue_type: string

@@ -118,12 +118,33 @@ def run_agent(
             )
 
             if attempt < max_retries + 1:
-                # Feed error back to agent for retry
-                full_prompt += (
-                    f"\n\nError: your response was invalid JSON or did not match the expected schema.\n"
-                    f"Details: {last_error}\n"
-                    f"Please try again, returning only valid JSON matching the schema."
-                )
+                # Two genuinely different failure classes need different retry guidance.
+                # A "json_invalid" error (pydantic-core's type for malformed JSON, e.g. "EOF
+                # while parsing a string") means the response was cut off mid-stream by the
+                # num_predict=8192 output cap above — usually because free-text fields
+                # (descriptions, rationale, recommended actions) ran long on a large plan.
+                # Telling the model "match the schema" doesn't address that; it needs to be
+                # told to write shorter text so the whole response fits. Anything else is a
+                # genuine shape/content mismatch, where "match the schema" is the right ask.
+                # Live-observed on both Planning's stories call and the Reviewer's call
+                # (Tier 1 stretch-goals live verification, 2026-08-22).
+                if "json_invalid" in last_error:
+                    full_prompt += (
+                        f"\n\nError: your previous response was cut off before it finished — "
+                        f"it ran out of output length, not a content problem.\n"
+                        f"Details: {last_error}\n"
+                        f"This time, keep every free-text field (descriptions, rationale, "
+                        f"recommended actions, etc.) short — one or two sentences each — so "
+                        f"the complete, valid JSON fits. Do not drop any required fields; just "
+                        f"make the text in each of them more concise."
+                    )
+                else:
+                    # Feed error back to agent for retry
+                    full_prompt += (
+                        f"\n\nError: your response was invalid JSON or did not match the expected schema.\n"
+                        f"Details: {last_error}\n"
+                        f"Please try again, returning only valid JSON matching the schema."
+                    )
             else:
                 # Max retries exceeded
                 raise AgentError(

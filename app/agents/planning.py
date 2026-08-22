@@ -1007,3 +1007,66 @@ def run_planning_agent(
         f"{len(stories)} stories, {len(technical_tasks)} tasks"
     )
     return plan
+
+
+def regenerate_sprint_plan(
+    project_id: str,
+    workflow_run_id: str,
+    *,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
+) -> ProjectPlan:
+    """Selective regeneration (stretch goal, §32): rebuilds only the sprint plan against the
+    current plan's existing stories, without re-running Requirement Analyst/epics/stories/
+    tasks. Persists as a new plan version via the same save_planning_artifacts path every
+    other generation call uses — nothing about version history treats this differently.
+    """
+    from app.tools.validation_tools import load_current_plan
+
+    current = load_current_plan(project_id, session_factory=session_factory)
+    if current is None:
+        raise ValueError(f"No plan exists yet for project '{project_id}' to regenerate from")
+
+    project_info = get_project_information(project_id, session_factory=session_factory)
+    new_sprint_plan = _generate_sprint_plan(project_info, current.stories)
+    updated_plan = current.model_copy(update={"sprint_plan": new_sprint_plan})
+
+    save_planning_artifacts(project_id, updated_plan, session_factory=session_factory)
+    logger.info(f"[Planning] project {project_id}: regenerated sprint plan only")
+    return updated_plan
+
+
+def regenerate_tasks_deps_raid(
+    project_id: str,
+    workflow_run_id: str,
+    *,
+    session_factory: "Callable[[], Session] | sessionmaker | None" = None,
+    vector_service: "VectorService | None" = None,
+) -> ProjectPlan:
+    """Selective regeneration (stretch goal, §32): rebuilds only technical tasks, dependencies,
+    and the RAID log against the current plan's existing epics/stories. Same citation
+    correction Task 1 (Day 22/23) applies to Requirements/RAID everywhere else in the codebase
+    applies here too — this is not a second, uncorrected code path.
+    """
+    from app.tools.validation_tools import load_current_plan
+
+    current = load_current_plan(project_id, session_factory=session_factory)
+    if current is None:
+        raise ValueError(f"No plan exists yet for project '{project_id}' to regenerate from")
+
+    project_info = get_project_information(project_id, session_factory=session_factory)
+    requirements = get_requirements(project_id, session_factory=session_factory)
+    clarifications = get_clarification_answers(project_id, session_factory=session_factory)
+    standards = search_company_standards(
+        "project scope definition of ready definition of done",
+        category=None, top_k=3, vector_service=vector_service,
+    )
+
+    technical_tasks, raid = _generate_tasks_deps_raid(
+        project_info, requirements, clarifications, standards, current.epics, current.stories,
+    )
+    raid = _correct_raid_citations(raid, project_id, session_factory)
+    updated_plan = current.model_copy(update={"technical_tasks": technical_tasks, "raid": raid})
+
+    save_planning_artifacts(project_id, updated_plan, session_factory=session_factory)
+    logger.info(f"[Planning] project {project_id}: regenerated tasks/dependencies/RAID only")
+    return updated_plan

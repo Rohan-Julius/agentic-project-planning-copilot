@@ -6,12 +6,13 @@ Filters by project_id for isolation (spec §12.3, §20.4).
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.database.session import get_session
+from app.database.session import get_session, get_sessionmaker
 from app.models.requirement import RequirementRecord
 from app.services import project_service
+from app.schemas.planning import RequirementImpact
 from app.schemas.requirement import RequirementRead
 
 router = APIRouter(prefix="/projects/{project_id}/requirements", tags=["requirements"])
@@ -68,3 +69,22 @@ def get_requirements(
     ).all()
 
     return [_to_read(req) for req in requirements]
+
+
+@router.get("/{requirement_id}/impact", response_model=RequirementImpact)
+def get_requirement_impact(
+    project_id: str,
+    requirement_id: str,
+    session: Session = Depends(get_session),
+    session_factory: sessionmaker = Depends(get_sessionmaker),
+) -> RequirementImpact:
+    """What downstream plan artifacts trace back to this requirement (§32 stretch goal) — use
+    before changing a requirement to see everything that needs review as a result.
+    """
+    from app.tools.validation_tools import compute_requirement_impact
+
+    _require_project(session, project_id)
+    try:
+        return compute_requirement_impact(project_id, requirement_id, session_factory=session_factory)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e

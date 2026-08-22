@@ -414,3 +414,16 @@ class ProjectPlan(BaseModel):
                     "(every story must belong to an epic in the same plan, spec §7.3/§30)"
                 )
         return self
+
+
+class RequirementImpact(BaseModel):
+    """Response shape for requirement-change impact analysis (§32 stretch goal) — every
+    artifact that traces back to one requirement, so a PM can see what needs review if that
+    requirement changes. Built from the traceability matrix; RAID items are not included (no
+    direct requirement_id link exists for them yet — see Future Improvements)."""
+
+    requirement_id: str
+    epics: list[Epic] = Field(default_factory=list)
+    stories: list[UserStory] = Field(default_factory=list)
+    technical_tasks: list[TechnicalTask] = Field(default_factory=list)
+    dependencies: list[Dependency] = Field(default_factory=list)

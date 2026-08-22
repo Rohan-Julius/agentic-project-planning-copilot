@@ -1,6 +1,8 @@
 """Plan read + approval endpoints (spec §18, §9.7, §11 approval point 2)."""
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from sqlalchemy import select
@@ -96,6 +98,76 @@ def get_plan_version(
             detail=f"Plan version '{version_id}' not found for project '{project_id}'",
         )
     return ProjectPlan.model_validate(version.plan_json)
+
+
+def _reset_approval_if_needed(session: Session, project_id: str) -> None:
+    """§20.5 guardrail: a new plan version from selective regeneration has not been reviewed
+    or approved by anyone — if the latest WorkflowRun was previously approved, it must not
+    keep silently reporting "approved" for content nobody has actually seen yet. Mirrors the
+    exact pattern approve_plan uses to *set* this flag, in reverse.
+    """
+    run = session.scalar(
+        select(WorkflowRun)
+        .where(WorkflowRun.project_id == project_id)
+        .order_by(WorkflowRun.started_at.desc())
+    )
+    if run is not None and run.final_approved:
+        run.final_approved = False
+        session.commit()
+
+
+@router.post("/regenerate/sprint-plan", response_model=ProjectPlan)
+def regenerate_sprint_plan_endpoint(
+    project_id: str,
+    session: Session = Depends(get_session),
+    _project_exists: None = Depends(_require_project_dependency),
+    session_factory: sessionmaker = Depends(get_sessionmaker),
+) -> ProjectPlan:
+    """Regenerate only the sprint plan against the current plan's existing stories (§32
+    'selective artifact regeneration') — not a full Planning re-run.
+    """
+    from app.agents.planning import regenerate_sprint_plan
+    from app.agents.runner import AgentError
+
+    try:
+        updated_plan = regenerate_sprint_plan(
+            project_id, f"regen-{uuid.uuid4().hex[:12]}", session_factory=session_factory,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except AgentError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    _reset_approval_if_needed(session, project_id)
+    return updated_plan
+
+
+@router.post("/regenerate/tasks-deps-raid", response_model=ProjectPlan)
+def regenerate_tasks_deps_raid_endpoint(
+    project_id: str,
+    session: Session = Depends(get_session),
+    _project_exists: None = Depends(_require_project_dependency),
+    session_factory: sessionmaker = Depends(get_sessionmaker),
+    vector_service: VectorService = Depends(get_vector_service),
+) -> ProjectPlan:
+    """Regenerate only technical tasks, dependencies, and the RAID log against the current
+    plan's existing epics/stories (§32 'selective artifact regeneration').
+    """
+    from app.agents.planning import regenerate_tasks_deps_raid
+    from app.agents.runner import AgentError
+
+    try:
+        updated_plan = regenerate_tasks_deps_raid(
+            project_id, f"regen-{uuid.uuid4().hex[:12]}",
+            session_factory=session_factory, vector_service=vector_service,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except AgentError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    _reset_approval_if_needed(session, project_id)
+    return updated_plan
 
 
 @router.post("/approve", response_model=WorkflowRunRead)

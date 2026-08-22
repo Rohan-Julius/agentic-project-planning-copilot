@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database.session import get_sessionmaker
 from app.models.document import DocumentChunkMeta
 from app.models.plan_artifact import PlanArtifactVersion
-from app.schemas.planning import Dependency, ProjectPlan, TraceabilityMatrix
+from app.schemas.planning import Dependency, ProjectPlan, RequirementImpact, TraceabilityMatrix
 from app.schemas.validation import TraceabilityResult, ValidationIssue, ValidationResult
 
 
@@ -339,4 +339,37 @@ def check_traceability(
         matrix=plan.traceability,
         coverage_gaps=coverage_gaps,
         orphan_story_ids=orphan_story_ids,
+    )
+
+
+def compute_requirement_impact(
+    project_id: str,
+    requirement_id: str,
+    *,
+    session_factory: Callable[[], Session] | sessionmaker | None = None,
+) -> RequirementImpact:
+    """Every epic/story/task/dependency that traces back to one requirement (§32 stretch goal
+    'requirement-change impact analysis') — pure deterministic lookup over the traceability
+    matrix already built by _build_traceability_matrix, no LLM call.
+    """
+    plan = load_current_plan(project_id, session_factory=session_factory)
+    if plan is None:
+        raise ValueError(f"No plan exists yet for project '{project_id}'")
+
+    matching_rows = [r for r in plan.traceability.rows if r.requirement_id == requirement_id]
+    epic_ids = {r.epic_id for r in matching_rows if r.epic_id}
+    story_ids = {r.story_id for r in matching_rows if r.story_id}
+
+    epics = [e for e in plan.epics if e.epic_id in epic_ids]
+    stories = [s for s in plan.stories if s.story_id in story_ids]
+    technical_tasks = [t for t in plan.technical_tasks if t.story_id in story_ids]
+    relevant_ids = epic_ids | story_ids
+    dependencies = [
+        d for d in plan.raid.dependencies
+        if d.blocking_item_id in relevant_ids or d.blocked_item_id in relevant_ids
+    ]
+
+    return RequirementImpact(
+        requirement_id=requirement_id, epics=epics, stories=stories,
+        technical_tasks=technical_tasks, dependencies=dependencies,
     )

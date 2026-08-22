@@ -17,6 +17,7 @@ import CreateProject from './pages/CreateProject'
 import DocumentWorkspace from './pages/DocumentWorkspace'
 import ClarificationWorkspace from './pages/ClarificationWorkspace'
 import PlanningWorkspace from './pages/PlanningWorkspace'
+import VersionHistory from './pages/VersionHistory'
 import ReviewerScreen from './pages/ReviewerScreen'
 import AgentExecutionScreen from './pages/AgentExecutionScreen'
 import ExportScreen from './pages/ExportScreen'
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: '/projects/:projectId/documents', element: <DocumentWorkspace /> },
       { path: '/projects/:projectId/clarifications', element: <ClarificationWorkspace /> },
       { path: '/projects/:projectId/plan', element: <PlanningWorkspace /> },
+      { path: '/projects/:projectId/plan/versions', element: <VersionHistory /> },
       { path: '/projects/:projectId/review', element: <ReviewerScreen /> },
       { path: '/projects/:projectId/workflow', element: <AgentExecutionScreen /> },
       { path: '/projects/:projectId/export', element: <ExportScreen /> },

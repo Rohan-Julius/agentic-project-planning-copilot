@@ -69,6 +69,38 @@ def test_run_agent_invalid_json_twice_raises():
     assert "Schema validation failed 2 times" in str(exc_info.value)
 
 
+def test_run_agent_truncated_json_retry_asks_for_shorter_text():
+    """Live-observed failure class (Tier 1 stretch-goals live verification, 2026-08-22): a
+    response cut off by the num_predict output cap fails with pydantic's "json_invalid" error
+    type, not a schema-shape mismatch. The retry prompt for that case must ask the model to
+    shorten free-text fields, not just "match the schema" — the generic message doesn't address
+    why the first attempt failed.
+    """
+    # Deliberately malformed to mimic truncation: an unterminated string, so
+    # model_validate_json raises a ValidationError whose message contains "json_invalid".
+    truncated_json = '{"action": "proceed", "reason": "this got cut off mid'
+    valid_json = '{"action": "proceed", "reason": "short"}'
+    mock_calls = [
+        {"response": truncated_json},
+        {"response": valid_json},
+    ]
+
+    with patch("ollama.generate", side_effect=mock_calls) as mock_generate:
+        result = run_agent(
+            agent_name="test",
+            prompt="Decide",
+            output_model=SimpleDecision,
+            tools=[],
+            max_retries=1,
+        )
+
+    assert result.action == "proceed"
+    second_call_prompt = mock_generate.call_args_list[1].kwargs["prompt"]
+    assert "cut off" in second_call_prompt
+    assert "short" in second_call_prompt.lower()
+    assert "match the expected schema" not in second_call_prompt
+
+
 def test_run_agent_ollama_unreachable():
     """If Ollama is down, raises AgentError with clear message."""
     import httpx

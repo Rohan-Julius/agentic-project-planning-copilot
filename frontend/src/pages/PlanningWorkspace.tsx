@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { Classification, Project, ProjectPlan, Requirement, SourceReference } from '../types'
+import HoverButtonContent from '../components/HoverButtonContent'
+import type {
+  Classification,
+  Project,
+  ProjectPlan,
+  Requirement,
+  RequirementImpact,
+  SourceReference,
+} from '../types'
 
 function Badge({ classification }: { classification: Classification }) {
   return (
@@ -28,6 +36,33 @@ function Citations({ refs }: { refs: SourceReference[] }) {
   )
 }
 
+function ImpactPanel({ impact }: { impact: RequirementImpact }) {
+  const hasAnyImpact =
+    impact.epics.length > 0 ||
+    impact.stories.length > 0 ||
+    impact.technical_tasks.length > 0 ||
+    impact.dependencies.length > 0
+  if (!hasAnyImpact) {
+    return <p className="muted">Nothing traces back to this requirement yet.</p>
+  }
+  return (
+    <div className="artifact-card">
+      {impact.epics.length > 0 && (
+        <p>Epics: {impact.epics.map((e) => `${e.epic_id} (${e.title})`).join(', ')}</p>
+      )}
+      {impact.stories.length > 0 && (
+        <p>Stories: {impact.stories.map((s) => `${s.story_id} (${s.title})`).join(', ')}</p>
+      )}
+      {impact.technical_tasks.length > 0 && (
+        <p>Tasks: {impact.technical_tasks.map((t) => t.task_id).join(', ')}</p>
+      )}
+      {impact.dependencies.length > 0 && (
+        <p>Dependencies: {impact.dependencies.map((d) => d.dependency_id).join(', ')}</p>
+      )}
+    </div>
+  )
+}
+
 export default function PlanningWorkspace() {
   const { projectId } = useParams<{ projectId: string }>()
   const [project, setProject] = useState<Project | null>(null)
@@ -35,6 +70,13 @@ export default function PlanningWorkspace() {
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [regeneratingSprintPlan, setRegeneratingSprintPlan] = useState(false)
+  const [regeneratingTasksRaid, setRegeneratingTasksRaid] = useState(false)
+  const [impactByRequirementId, setImpactByRequirementId] = useState<
+    Record<string, RequirementImpact | undefined>
+  >({})
+  const [expandedImpactIds, setExpandedImpactIds] = useState<Record<string, boolean>>({})
+  const [impactLoading, setImpactLoading] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!projectId) return
@@ -53,6 +95,37 @@ export default function PlanningWorkspace() {
       .finally(() => setLoading(false))
   }, [projectId])
 
+  function handleRegenerateSprintPlan() {
+    if (!projectId) return
+    setRegeneratingSprintPlan(true)
+    api
+      .post<ProjectPlan>(`/projects/${projectId}/plan/regenerate/sprint-plan`, {})
+      .then(setPlan)
+      .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
+      .finally(() => setRegeneratingSprintPlan(false))
+  }
+
+  function handleRegenerateTasksRaid() {
+    if (!projectId) return
+    setRegeneratingTasksRaid(true)
+    api
+      .post<ProjectPlan>(`/projects/${projectId}/plan/regenerate/tasks-deps-raid`, {})
+      .then(setPlan)
+      .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
+      .finally(() => setRegeneratingTasksRaid(false))
+  }
+
+  function handleToggleImpact(requirementId: string) {
+    setExpandedImpactIds((prev) => ({ ...prev, [requirementId]: !prev[requirementId] }))
+    if (!projectId || impactByRequirementId[requirementId]) return
+    setImpactLoading((prev) => ({ ...prev, [requirementId]: true }))
+    api
+      .get<RequirementImpact>(`/projects/${projectId}/requirements/${requirementId}/impact`)
+      .then((impact) => setImpactByRequirementId((prev) => ({ ...prev, [requirementId]: impact })))
+      .catch((err) => setError(err instanceof ApiError ? err.message : (err as Error).message))
+      .finally(() => setImpactLoading((prev) => ({ ...prev, [requirementId]: false })))
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -62,9 +135,14 @@ export default function PlanningWorkspace() {
             Generated epics, stories, tasks, RAID log, and sprint plan. Review before approval.
           </p>
         </div>
-        <Link className="back-link" to={`/projects/${projectId}/review`}>
-          Reviewer findings →
-        </Link>
+        <div>
+          <Link className="back-link" to={`/projects/${projectId}/plan/versions`}>
+            Version history →
+          </Link>
+          <Link className="back-link" to={`/projects/${projectId}/review`}>
+            Reviewer findings →
+          </Link>
+        </div>
       </header>
 
       {loading && <p>Loading…</p>}
@@ -115,6 +193,23 @@ export default function PlanningWorkspace() {
                     Category: {req.category} · Confidence: {req.confidence.toFixed(2)}
                   </p>
                   <Citations refs={req.source_references} />
+                  <button
+                    className="button-hover"
+                    type="button"
+                    onClick={() => handleToggleImpact(req.requirement_id)}
+                  >
+                    <HoverButtonContent>
+                      {impactLoading[req.requirement_id]
+                        ? 'Loading…'
+                        : expandedImpactIds[req.requirement_id]
+                          ? 'Hide impact'
+                          : 'Show impact'}
+                    </HoverButtonContent>
+                  </button>
+                  {expandedImpactIds[req.requirement_id] &&
+                    impactByRequirementId[req.requirement_id] && (
+                      <ImpactPanel impact={impactByRequirementId[req.requirement_id]!} />
+                    )}
                 </div>
               ))
             )}
@@ -171,6 +266,22 @@ export default function PlanningWorkspace() {
           <section className="panel">
             <h2>Technical Tasks ({plan.technical_tasks.length})</h2>
             <p className="muted">Recommendations, not confirmed technical requirements.</p>
+            <p className="muted">
+              Regenerating also rebuilds Dependencies and the RAID log below, against the
+              existing epics/stories — it will require re-approval of the plan before export.
+            </p>
+            <div className="form-actions">
+              <button
+                className="button-hover"
+                type="button"
+                disabled={regeneratingTasksRaid}
+                onClick={handleRegenerateTasksRaid}
+              >
+                <HoverButtonContent>
+                  {regeneratingTasksRaid ? 'Regenerating… (this can take a while)' : 'Regenerate tasks, dependencies & RAID'}
+                </HoverButtonContent>
+              </button>
+            </div>
             <ul>
               {plan.technical_tasks.map((task) => (
                 <li key={task.task_id}>
@@ -227,6 +338,21 @@ export default function PlanningWorkspace() {
 
           <section className="panel">
             <h2>Sprint Plan</h2>
+            <p className="muted">
+              Regenerating will require re-approval of the plan before export.
+            </p>
+            <div className="form-actions">
+              <button
+                className="button-hover"
+                type="button"
+                disabled={regeneratingSprintPlan}
+                onClick={handleRegenerateSprintPlan}
+              >
+                <HoverButtonContent>
+                  {regeneratingSprintPlan ? 'Regenerating… (this can take a while)' : 'Regenerate sprint plan'}
+                </HoverButtonContent>
+              </button>
+            </div>
             {plan.sprint_plan ? (
               <>
                 <p className="muted">
