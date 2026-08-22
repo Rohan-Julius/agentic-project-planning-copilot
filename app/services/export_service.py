@@ -15,6 +15,8 @@ import json
 import zipfile
 from pathlib import Path
 
+from docx import Document
+
 from app.schemas.common import SourceReference
 from app.schemas.planning import ProjectPlan
 from app.schemas.reviewer import ReviewerReport
@@ -256,6 +258,176 @@ def build_markdown_export(
     return "\n".join(lines)
 
 
+def build_docx_bytes(
+    plan: ProjectPlan, *, approved: bool, exported_at: dt.datetime | None = None
+) -> bytes:
+    """Word-format twin of `build_markdown_export`, same traversal order (Summary → Scope →
+    Epics → Stories → Technical Tasks → RAID → Sprint Plan → Traceability) so the two exports
+    stay easy to keep in sync.
+    """
+    exported_at = exported_at or dt.datetime.now(dt.timezone.utc)
+    doc = Document()
+
+    doc.add_heading("Project Plan (AI-Generated Draft)", level=0)
+    meta = doc.add_paragraph()
+    meta.add_run(f"Status: {approval_label(approved)}").bold = True
+    doc.add_paragraph(f"Exported: {exported_at.isoformat()}")
+
+    doc.add_heading("1. Project Summary", level=1)
+    doc.add_paragraph(f"Business problem: {plan.summary.business_problem}")
+    doc.add_paragraph(f"Proposed solution: {plan.summary.proposed_solution}")
+    for label, values in (
+        ("Objectives", plan.summary.objectives),
+        ("Target users", plan.summary.target_users),
+        ("Expected benefits", plan.summary.expected_benefits),
+        ("Success criteria", plan.summary.success_criteria),
+        ("Major constraints", plan.summary.major_constraints),
+    ):
+        if values:
+            doc.add_paragraph(f"{label}: " + "; ".join(values))
+
+    doc.add_heading("2. Scope", level=1)
+    for label, values in (
+        ("In scope", plan.scope.in_scope),
+        ("Out of scope", plan.scope.out_of_scope),
+        ("Future scope", plan.scope.future_scope),
+        ("Assumptions", plan.scope.assumptions),
+        ("Constraints", plan.scope.constraints),
+    ):
+        doc.add_heading(label, level=2)
+        if values:
+            for v in values:
+                doc.add_paragraph(v, style="List Bullet")
+        else:
+            doc.add_paragraph("(none)")
+
+    doc.add_heading("3. Epics", level=1)
+    if not plan.epics:
+        doc.add_paragraph("(none)")
+    for epic in plan.epics:
+        doc.add_heading(f"{epic.epic_id}: {epic.title} [{epic.classification}]", level=2)
+        doc.add_paragraph(f"Objective: {epic.objective}")
+        doc.add_paragraph(f"Business value: {epic.business_value}")
+        doc.add_paragraph(f"Priority: {epic.priority}")
+        if epic.description:
+            doc.add_paragraph(f"Description: {epic.description}")
+        if epic.dependencies:
+            doc.add_paragraph(f"Dependencies: {', '.join(epic.dependencies)}")
+        if epic.risks:
+            doc.add_paragraph(f"Risks: {', '.join(epic.risks)}")
+        refs = format_source_references(epic.source_references)
+        if refs:
+            doc.add_paragraph(f"Sources: {refs}")
+
+    doc.add_heading("4. User Stories", level=1)
+    if not plan.stories:
+        doc.add_paragraph("(none)")
+    for story in plan.stories:
+        doc.add_heading(
+            f"{story.story_id}: {story.title} (Epic: {story.epic_id}) [{story.classification}]",
+            level=2,
+        )
+        doc.add_paragraph(
+            f"As a {story.persona}, I want {story.story_statement}, so that {story.business_value}."
+        )
+        doc.add_paragraph(f"Priority: {story.priority}")
+        if story.suggested_story_points is not None:
+            doc.add_paragraph(
+                f"Suggested story points (unconfirmed estimate): {story.suggested_story_points}"
+            )
+        doc.add_paragraph("Acceptance criteria:")
+        for ac in story.acceptance_criteria:
+            doc.add_paragraph(
+                f"{ac.criterion_id}: Given {ac.given} When {ac.when} Then {ac.then}",
+                style="List Bullet",
+            )
+        if story.dependencies:
+            doc.add_paragraph(f"Dependencies: {', '.join(story.dependencies)}")
+        if story.assumptions:
+            doc.add_paragraph(f"Assumptions: {', '.join(story.assumptions)}")
+        refs = format_source_references(story.source_references)
+        if refs:
+            doc.add_paragraph(f"Sources: {refs}")
+
+    doc.add_heading("5. Technical Tasks (recommendations, not confirmed requirements)", level=1)
+    if not plan.technical_tasks:
+        doc.add_paragraph("(none)")
+    for task in plan.technical_tasks:
+        story_ref = f" (story {task.story_id})" if task.story_id else ""
+        doc.add_paragraph(
+            f"{task.task_id} [{task.category}]{story_ref}: {task.description}",
+            style="List Bullet",
+        )
+
+    doc.add_heading("6. RAID Log", level=1)
+    doc.add_heading("Risks", level=2)
+    if not plan.raid.risks:
+        doc.add_paragraph("(none)")
+    for risk in plan.raid.risks:
+        doc.add_paragraph(
+            f"{risk.risk_id} [{risk.classification}] "
+            f"({risk.probability}/{risk.impact}/{risk.severity}): {risk.description} — "
+            f"Mitigation: {risk.mitigation}; Contingency: {risk.contingency}",
+            style="List Bullet",
+        )
+    doc.add_heading("Assumptions", level=2)
+    if not plan.raid.assumptions:
+        doc.add_paragraph("(none)")
+    for a in plan.raid.assumptions:
+        doc.add_paragraph(f"{a.assumption_id} [{a.classification}]: {a.description}", style="List Bullet")
+    doc.add_heading("Issues", level=2)
+    if not plan.raid.issues:
+        doc.add_paragraph("(none)")
+    for issue in plan.raid.issues:
+        doc.add_paragraph(f"{issue.issue_id} ({issue.status}): {issue.description}", style="List Bullet")
+    doc.add_heading("Dependencies", level=2)
+    if not plan.raid.dependencies:
+        doc.add_paragraph("(none)")
+    for dep in plan.raid.dependencies:
+        doc.add_paragraph(
+            f"{dep.dependency_id} [{dep.dependency_type}]: {dep.blocking_item_id} blocks "
+            f"{dep.blocked_item_id} — {dep.description or 'no description'}",
+            style="List Bullet",
+        )
+
+    doc.add_heading("7. Sprint Plan (AI-generated draft — requires human review)", level=1)
+    sprint_plan = plan.sprint_plan
+    if sprint_plan is None:
+        doc.add_paragraph("(no sprint plan generated)")
+    else:
+        doc.add_paragraph(f"Suggested sprint count: {sprint_plan.suggested_sprint_count}")
+        for sprint in sprint_plan.sprints:
+            doc.add_heading(
+                f"Sprint {sprint.sprint_number}: {sprint.sprint_goal} ({sprint.story_point_total} pts)",
+                level=2,
+            )
+            doc.add_paragraph(f"Stories: {', '.join(sprint.story_ids) or '(none)'}")
+        if sprint_plan.unscheduled_story_ids:
+            doc.add_paragraph(f"Unscheduled stories: {', '.join(sprint_plan.unscheduled_story_ids)}")
+        if sprint_plan.dependency_considerations:
+            doc.add_paragraph(
+                "Dependency considerations: " + "; ".join(sprint_plan.dependency_considerations)
+            )
+
+    doc.add_heading("8. Traceability Matrix", level=1)
+    table = doc.add_table(rows=1, cols=5)
+    table.style = "Light Grid Accent 1"
+    hdr = table.rows[0].cells
+    for i, h in enumerate(["Requirement", "Source", "Epic", "Story", "Acceptance Criteria"]):
+        hdr[i].text = h
+    for row in plan.traceability.rows:
+        cells = table.add_row().cells
+        cells[0].text = row.requirement_id
+        cells[1].text = format_source_references(row.source_references)
+        cells[2].text = row.epic_id or ""
+        cells[3].text = row.story_id or ""
+        cells[4].text = ", ".join(row.acceptance_criterion_ids)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def _project_export_dir(export_dir: Path, project_id: str) -> Path:
     project_dir = export_dir / project_id
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -275,6 +447,14 @@ def write_markdown_file(
 ) -> Path:
     path = _project_export_dir(export_dir, project_id) / "plan.md"
     path.write_text(build_markdown_export(plan, approved=approved))
+    return path
+
+
+def write_docx_file(
+    project_id: str, plan: ProjectPlan, *, approved: bool, export_dir: Path
+) -> Path:
+    path = _project_export_dir(export_dir, project_id) / "plan.docx"
+    path.write_bytes(build_docx_bytes(plan, approved=approved))
     return path
 
 

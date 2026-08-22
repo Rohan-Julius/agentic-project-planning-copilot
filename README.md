@@ -248,8 +248,11 @@ instead of synchronous requests).
 | Plan version comparison | Done — a version-history page diffs any two versions' Epics/Stories/Technical tasks/Dependencies (added/removed/modified/unchanged). The diff is whole-object-equality based, not field-level, and RAID/sprint-plan aren't diffed (no stable diff identity) |
 | Selective artifact regeneration | Done — sprint plan alone, or tasks/dependencies/RAID together, can be regenerated without rebuilding the whole plan; regenerating resets plan approval (§20.5). Epics/stories are deliberately not selectively regeneratable — they're the ID backbone everything downstream keys off of |
 | Requirement-change impact analysis | Done — shows every epic/story/task/dependency traceable to a requirement, reusing the existing traceability matrix (fully deterministic, no new LLM call). RAID items aren't covered — they're not keyed to individual requirements in that matrix |
+| DOCX export | Done — mirrors the Markdown export's exact structure via python-docx (already a dependency, previously used only for parsing input documents). No custom Word styling/branding — plain heading/table styles, same as the Markdown export |
+| Visual dependency graph | Done — a hand-rolled SVG layered-DAG view (no new graph library) toggled alongside the existing Dependencies list. Only items that appear in a dependency edge are shown; a detected cycle is flagged rather than silently mis-rendered |
+| Agent execution replay | Done — Play/Pause/step/scrub controls added to the execution screen over its existing event log. Scoped to the latest run only, matching that endpoint's own deliberate one-run-at-a-time design; browsing past runs would need a new backend endpoint |
 | Local reranking model | Deliberately dropped — the pipeline's generation latency (not retrieval) was already the bottleneck, so adding another local-model inference pass wasn't worth it |
-| Direct Jira issue creation, visual dependency graph, DOCX export, user-selectable models, agent execution replay, project-plan chat interface | Not attempted — each is a genuinely separate feature, not a small extension of what exists |
+| Direct Jira issue creation, user-selectable models, project-plan chat interface | Not attempted — each is a genuinely separate feature, not a small extension of what exists |
 
 ### What this build's own experience surfaced
 

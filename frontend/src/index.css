@@ -1843,6 +1843,80 @@ textarea:focus-visible,
   background: #7c3aed;
 }
 
+.file-format-badge-docx {
+  background: #2b579a;
+}
+
+.dependency-graph-wrap {
+  overflow-x: auto;
+}
+
+.dependency-graph-svg {
+  max-width: 100%;
+}
+
+.dependency-node-rect {
+  fill: var(--surface-raised);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.dependency-node-text {
+  font-size: 12px;
+  fill: var(--text);
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.dependency-edge {
+  stroke-width: 2;
+  fill: none;
+}
+
+.dependency-edge-blocks {
+  stroke: var(--danger);
+}
+
+.dependency-edge-requires {
+  stroke: var(--clarification);
+}
+
+.dependency-edge-relates {
+  stroke: var(--border);
+  stroke-dasharray: 4 3;
+}
+
+.dependency-arrowhead {
+  fill: currentColor;
+}
+
+.dependency-graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.dependency-legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  margin-right: 2px;
+}
+
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.replay-controls input[type='range'] {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
 .file-format-label {
   font-size: 13px;
   color: var(--text);

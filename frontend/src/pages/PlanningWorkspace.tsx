@@ -1,15 +1,32 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
+import DependencyGraph from '../components/DependencyGraph'
 import HoverButtonContent from '../components/HoverButtonContent'
 import type {
   Classification,
+  Epic,
   Project,
   ProjectPlan,
   Requirement,
   RequirementImpact,
   SourceReference,
+  TechnicalTask,
+  UserStory,
 } from '../types'
+
+function labelForItemId(
+  id: string,
+  plan: { epics: Epic[]; stories: UserStory[]; technical_tasks: TechnicalTask[] },
+): string {
+  const epic = plan.epics.find((e) => e.epic_id === id)
+  if (epic) return epic.title
+  const story = plan.stories.find((s) => s.story_id === id)
+  if (story) return story.title
+  const task = plan.technical_tasks.find((t) => t.task_id === id)
+  if (task) return task.description.slice(0, 40)
+  return id
+}
 
 function Badge({ classification }: { classification: Classification }) {
   return (
@@ -77,6 +94,7 @@ export default function PlanningWorkspace() {
   >({})
   const [expandedImpactIds, setExpandedImpactIds] = useState<Record<string, boolean>>({})
   const [impactLoading, setImpactLoading] = useState<Record<string, boolean>>({})
+  const [dependencyView, setDependencyView] = useState<'list' | 'graph'>('list')
 
   useEffect(() => {
     if (!projectId) return
@@ -294,14 +312,37 @@ export default function PlanningWorkspace() {
 
           <section className="panel">
             <h2>Dependencies ({plan.raid.dependencies.length})</h2>
-            <ul>
-              {plan.raid.dependencies.map((dep) => (
-                <li key={dep.dependency_id}>
-                  {dep.blocking_item_id} blocks {dep.blocked_item_id} ({dep.dependency_type})
-                  {dep.description ? `: ${dep.description}` : ''}
-                </li>
-              ))}
-            </ul>
+            <div className="document-actions">
+              <button
+                type="button"
+                className={`button-ghost${dependencyView === 'list' ? ' is-active' : ''}`}
+                onClick={() => setDependencyView('list')}
+              >
+                List
+              </button>
+              <button
+                type="button"
+                className={`button-ghost${dependencyView === 'graph' ? ' is-active' : ''}`}
+                onClick={() => setDependencyView('graph')}
+              >
+                Graph
+              </button>
+            </div>
+            {dependencyView === 'list' ? (
+              <ul>
+                {plan.raid.dependencies.map((dep) => (
+                  <li key={dep.dependency_id}>
+                    {dep.blocking_item_id} blocks {dep.blocked_item_id} ({dep.dependency_type})
+                    {dep.description ? `: ${dep.description}` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <DependencyGraph
+                dependencies={plan.raid.dependencies}
+                labelById={(id) => labelForItemId(id, plan)}
+              />
+            )}
           </section>
 
           <section className="panel">

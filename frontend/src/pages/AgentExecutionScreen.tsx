@@ -48,6 +48,8 @@ export default function AgentExecutionScreen() {
   const [events, setEvents] = useState<WorkflowEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [abandoning, setAbandoning] = useState(false);
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  const [replayPlaying, setReplayPlaying] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
@@ -82,6 +84,20 @@ export default function AgentExecutionScreen() {
       clearInterval(interval);
     };
   }, [projectId]);
+
+  // Replay playback: steps replayIndex forward on a timer while playing. Deliberately scoped
+  // to the events already fetched for this (the latest) run — GET .../workflow/events is
+  // itself scoped to one run's history, not a jumbled cross-run log (see that endpoint's own
+  // docstring), so replay doesn't reach past that.
+  useEffect(() => {
+    if (!replayPlaying || replayIndex === null) return;
+    if (replayIndex >= events.length - 1) {
+      setReplayPlaying(false);
+      return;
+    }
+    const timer = setTimeout(() => setReplayIndex((i) => (i === null ? null : i + 1)), 800);
+    return () => clearTimeout(timer);
+  }, [replayPlaying, replayIndex, events.length]);
 
   async function handleAbandon() {
     if (!projectId) return;
@@ -137,6 +153,10 @@ export default function AgentExecutionScreen() {
   const gateDescription = run?.pending_gate
     ? GATE_DESCRIPTIONS[run.pending_gate]
     : undefined;
+
+  const isReplaying = replayIndex !== null;
+  const visibleEvents = isReplaying ? events.slice(0, replayIndex + 1) : events;
+  const replayCurrentEvent = isReplaying ? events[replayIndex] : null;
 
   return (
     <div className="page">
@@ -235,8 +255,76 @@ export default function AgentExecutionScreen() {
 
           <section className="panel">
             <h2>Execution log ({events.length})</h2>
+            {events.length > 1 && (
+              <div className="replay-controls">
+                {!isReplaying ? (
+                  <button
+                    type="button"
+                    className="button-hover"
+                    onClick={() => {
+                      setReplayIndex(0);
+                      setReplayPlaying(false);
+                    }}
+                  >
+                    Replay from the start
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="button-hover"
+                      onClick={() => setReplayPlaying((p) => !p)}
+                    >
+                      {replayPlaying ? "Pause" : "Play"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button-hover"
+                      disabled={replayIndex === 0}
+                      onClick={() => setReplayIndex((i) => Math.max(0, (i ?? 0) - 1))}
+                    >
+                      ← Step back
+                    </button>
+                    <button
+                      type="button"
+                      className="button-hover"
+                      disabled={replayIndex === events.length - 1}
+                      onClick={() =>
+                        setReplayIndex((i) => Math.min(events.length - 1, (i ?? 0) + 1))
+                      }
+                    >
+                      Step forward →
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={events.length - 1}
+                      value={replayIndex ?? 0}
+                      onChange={(e) => setReplayIndex(Number(e.target.value))}
+                      aria-label="Replay position"
+                    />
+                    <span className="muted">
+                      {(replayIndex ?? 0) + 1} / {events.length}
+                      {replayCurrentEvent
+                        ? ` — ${agentLabel(replayCurrentEvent.agent)}: ${eventActivityLabel(replayCurrentEvent)}`
+                        : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="button-hover"
+                      onClick={() => {
+                        setReplayIndex(null);
+                        setReplayPlaying(false);
+                      }}
+                    >
+                      Exit replay
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <ul className="log">
-              {events.map((event, i) => {
+              {visibleEvents.map((event, i) => {
                 const isLive = event === latestEvent && isRunning;
                 return (
                   <li

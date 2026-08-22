@@ -60,14 +60,14 @@ def _seed_plan(client, project_id: str) -> None:
 
 
 def test_export_endpoints_return_404_for_unknown_project(client):
-    for fmt in ("json", "markdown", "jira-csv", "zip"):
+    for fmt in ("json", "markdown", "jira-csv", "zip", "docx"):
         resp = client.get(f"/projects/PRJ-NOPE/export/{fmt}")
         assert resp.status_code == 404
 
 
 def test_export_endpoints_return_404_when_no_plan_yet(client):
     project_id = _create_project(client)
-    for fmt in ("json", "markdown", "jira-csv", "zip"):
+    for fmt in ("json", "markdown", "jira-csv", "zip", "docx"):
         resp = client.get(f"/projects/{project_id}/export/{fmt}")
         assert resp.status_code == 404
 
@@ -123,7 +123,24 @@ def test_export_jira_csv_flow(client):
     assert rows[1]["Issue Type"] == "Story"
 
 
-def test_export_zip_bundles_json_markdown_and_csv(client):
+def test_export_docx_flow(client):
+    from docx import Document
+
+    project_id = _create_project(client)
+    _seed_plan(client, project_id)
+
+    resp = client.get(f"/projects/{project_id}/export/docx")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    doc = Document(io.BytesIO(resp.content))
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Leave requests" in full_text
+
+
+def test_export_zip_bundles_json_markdown_csv_and_docx(client):
     project_id = _create_project(client)
     _seed_plan(client, project_id)
 
@@ -132,4 +149,4 @@ def test_export_zip_bundles_json_markdown_and_csv(client):
     assert resp.status_code == 200
     with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
         names = set(zf.namelist())
-    assert names == {"plan.json", "plan.md", "jira.csv"}
+    assert names == {"plan.json", "plan.md", "jira.csv", "plan.docx"}

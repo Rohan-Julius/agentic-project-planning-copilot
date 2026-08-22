@@ -90,8 +90,13 @@ export default function ExportScreen() {
                 })
               }
             />
-            {/* Zip is a binary bundle (json + markdown + jira csv + reviewer report) — nothing
-                sensible to preview as text, so this one stays a direct download link. */}
+            {/* DOCX and zip are both binary — nothing sensible to preview as text, so these
+                stay direct download links. */}
+            <FileFormatCard
+              format="docx"
+              label="Word (.docx)"
+              href={`${apiBaseUrl}/projects/${projectId}/export/docx`}
+            />
             <FileFormatCard
               format="zip"
               label="ZIP (all formats + reviewer report)"

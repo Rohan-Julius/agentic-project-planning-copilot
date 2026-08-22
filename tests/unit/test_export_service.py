@@ -20,12 +20,14 @@ from app.schemas.reviewer import ReviewerReport
 from app.services.export_service import (
     JIRA_CSV_COLUMNS,
     approval_label,
+    build_docx_bytes,
     build_jira_csv_rows,
     build_jira_csv_text,
     build_json_export,
     build_markdown_export,
     build_zip_bytes,
     format_source_references,
+    write_docx_file,
     write_jira_csv_file,
     write_json_file,
     write_markdown_file,
@@ -118,6 +120,49 @@ def test_build_markdown_export_includes_all_artifact_families_and_status():
     assert "## 8. Traceability Matrix" in markdown
 
 
+def test_build_docx_bytes_structural():
+    """A minimal structural check: valid .docx bytes, opens back up, contains the plan's own
+    epic/story titles and the correct approval status — not a full content diff (that's what
+    the Markdown export's own tests above already cover in prose form).
+    """
+    from docx import Document
+
+    plan = _sample_plan()
+    data = build_docx_bytes(plan, approved=False)
+    assert isinstance(data, bytes)
+    assert len(data) > 0
+
+    doc = Document(io.BytesIO(data))
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "DRAFT_PENDING_APPROVAL" in full_text
+    assert "Leave requests" in full_text
+    assert "Submit leave request" in full_text
+
+
+def test_build_docx_bytes_approved_label():
+    from docx import Document
+
+    plan = _sample_plan()
+    data = build_docx_bytes(plan, approved=True)
+    doc = Document(io.BytesIO(data))
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "APPROVED" in full_text
+    assert "DRAFT_PENDING_APPROVAL" not in full_text
+
+
+def test_write_docx_file_never_writes_into_the_documents_directory(tmp_path):
+    documents_dir = tmp_path / "documents"
+    documents_dir.mkdir()
+    export_dir = tmp_path / "exports"
+
+    path = write_docx_file("proj_1", _sample_plan(), approved=True, export_dir=export_dir)
+
+    assert path.exists()
+    assert path.is_relative_to(export_dir)
+    assert not path.is_relative_to(documents_dir)
+    assert list(documents_dir.iterdir()) == []
+
+
 def test_write_json_file_never_writes_into_the_documents_directory(tmp_path):
     documents_dir = tmp_path / "documents"
     documents_dir.mkdir()
@@ -158,13 +203,14 @@ def test_build_zip_bytes_contains_every_written_file(tmp_path):
         "json": write_json_file("proj_1", plan, approved=True, export_dir=export_dir),
         "markdown": write_markdown_file("proj_1", plan, approved=True, export_dir=export_dir),
         "jira_csv": write_jira_csv_file("proj_1", plan, export_dir=export_dir),
+        "docx": write_docx_file("proj_1", plan, approved=True, export_dir=export_dir),
     }
 
     zip_bytes = build_zip_bytes(paths)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = set(zf.namelist())
 
-    assert names == {"plan.json", "plan.md", "jira.csv"}
+    assert names == {"plan.json", "plan.md", "jira.csv", "plan.docx"}
 
 
 def test_format_source_references_omits_missing_page_number():

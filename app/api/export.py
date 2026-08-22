@@ -22,6 +22,7 @@ from app.schemas.reviewer import ReviewerReport
 from app.services import project_service
 from app.services.export_service import (
     build_zip_bytes,
+    write_docx_file,
     write_jira_csv_file,
     write_json_file,
     write_markdown_file,
@@ -95,6 +96,23 @@ def export_markdown(
     return FileResponse(path, media_type="text/markdown", filename=f"{project_id}-plan.md")
 
 
+@router.get("/docx")
+def export_docx(
+    project_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    _require_project(session, project_id)
+    plan = _require_plan(session, project_id)
+    approved = _is_final_approved(session, project_id)
+    path = write_docx_file(project_id, plan, approved=approved, export_dir=settings.exports_dir)
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{project_id}-plan.docx",
+    )
+
+
 @router.get("/jira-csv")
 def export_jira_csv_endpoint(
     project_id: str,
@@ -120,6 +138,7 @@ def export_zip(
         "json": write_json_file(project_id, plan, approved=approved, export_dir=settings.exports_dir),
         "markdown": write_markdown_file(project_id, plan, approved=approved, export_dir=settings.exports_dir),
         "jira_csv": write_jira_csv_file(project_id, plan, export_dir=settings.exports_dir),
+        "docx": write_docx_file(project_id, plan, approved=approved, export_dir=settings.exports_dir),
     }
     report = _current_reviewer_report(session, project_id)
     if report is not None:

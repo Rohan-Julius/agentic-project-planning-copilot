@@ -1,4 +1,4 @@
-export type ExportFormat = 'json' | 'markdown' | 'csv' | 'zip'
+export type ExportFormat = 'json' | 'markdown' | 'csv' | 'zip' | 'docx'
 
 interface FileFormatCardProps {
   format: ExportFormat
@@ -16,6 +16,7 @@ const FORMAT_BADGE: Record<ExportFormat, string> = {
   markdown: 'MD',
   csv: 'CSV',
   zip: 'ZIP',
+  docx: 'DOCX',
 }
 
 /** A small file-icon tile — colored format badge over a "paper" card with a placeholder
@@ -84,6 +85,17 @@ function FormatGlyph({ format }: { format: ExportFormat }) {
         {Array.from({ length: 9 }).map((_, i) => (
           <span key={i} className="file-format-cell" />
         ))}
+      </span>
+    )
+  }
+  if (format === 'docx') {
+    return (
+      <span className="file-format-lines" aria-hidden="true">
+        <span className="file-format-heading" />
+        <span className="file-format-line file-format-line-w3" />
+        <span className="file-format-line file-format-line-w2" />
+        <span className="file-format-line file-format-line-w3" />
+        <span className="file-format-line file-format-line-w2" />
       </span>
     )
   }
