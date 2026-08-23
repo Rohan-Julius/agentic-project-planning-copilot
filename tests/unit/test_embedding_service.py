@@ -46,3 +46,21 @@ def test_same_model_name_shares_underlying_model_instance():
     second = EmbeddingService()
 
     assert first._model is second._model
+
+
+def test_default_device_is_cpu_not_gpu_auto_detected():
+    """Day 25: defaults to "cpu", not sentence-transformers' own GPU auto-detection (mps on
+    Apple Silicon) — live-observed GPU contention with Ollama's own loaded LLM on the same
+    machine, up to and including an outright HTTP 500 from Ollama's /api/generate. See
+    Settings.embedding_device's docstring in app/config.py.
+    """
+    service = EmbeddingService()
+
+    assert service.device == "cpu"
+
+
+def test_explicit_device_override_respected():
+    service = EmbeddingService(device="cpu")
+
+    assert service.device == "cpu"
+

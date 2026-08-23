@@ -70,18 +70,30 @@ def _seed_unsupported_requirement(plan: dict) -> dict:
 
 
 def _seed_circular_dependency(plan: dict) -> dict:
+    """Day 25 bug fix: this previously wrote to a bogus top-level `plan["dependencies"]` key
+    and used a lowercase `"blocks"` dependency_type. Neither matches the real schema —
+    `Dependency` objects live under `plan["raid"]["dependencies"]` (see `RaidLog` in
+    app/schemas/planning.py), and `DependencyType` is the uppercase literal
+    `"BLOCKS"/"REQUIRES"/"RELATES_TO"`. Pydantic silently ignores unknown extra fields by
+    default, so this seed was a silent no-op — every live run since Day 20 that used it
+    (including this file's own Day 20 baseline and its Day 25 rerun) never actually injected a
+    circular dependency into the plan at all, making the "Reviewer/validator didn't catch it"
+    conclusion those runs implied false: there was nothing to catch. Found live during the
+    Day 25 rerun by noticing `structural_errors: []` despite `_check_circular_dependencies`
+    (validation_tools.py) already existing and being wired into `validate_project_plan`.
+    """
     plan = copy.deepcopy(plan)
     stories = plan["stories"]
     if len(stories) >= 2:
         a, b = stories[0]["story_id"], stories[1]["story_id"]
-        plan["dependencies"] = plan.get("dependencies", []) + [
+        plan["raid"]["dependencies"] = plan["raid"].get("dependencies", []) + [
             {
                 "dependency_id": "DEP-CYCLE-1", "blocking_item_id": a, "blocked_item_id": b,
-                "dependency_type": "blocks", "description": "seeded", "suggested_resolution": "",
+                "dependency_type": "BLOCKS", "description": "seeded", "suggested_resolution": "",
             },
             {
                 "dependency_id": "DEP-CYCLE-2", "blocking_item_id": b, "blocked_item_id": a,
-                "dependency_type": "blocks", "description": "seeded", "suggested_resolution": "",
+                "dependency_type": "BLOCKS", "description": "seeded", "suggested_resolution": "",
             },
         ]
     return plan
@@ -133,7 +145,7 @@ def _persist_plan(session_factory, project_id: str, plan_dict: dict) -> None:
         session.close()
 
 
-def main(client, baseline_plan: dict, project_id: str) -> list[dict]:
+def main(client, baseline_plan: dict, project_id: str, *, reports_dir: Path = REPORTS_DIR) -> list[dict]:
     from app.agents.reviewer import run_reviewer_agent
     from app.tools.validation_tools import validate_project_plan
     from pydantic import ValidationError
@@ -191,7 +203,7 @@ def main(client, baseline_plan: dict, project_id: str) -> list[dict]:
                 "issues": [str(exc)],
             })
 
-    write_report(results)
+    write_report(results, reports_dir=reports_dir)
     return results
 
 
@@ -220,8 +232,15 @@ def _note_for(r: dict) -> str:
     return str(r["issues"][0])[:150] if r.get("issues") else ""
 
 
-def write_report(results: list[dict]) -> None:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+def write_report(results: list[dict], *, reports_dir: Path = REPORTS_DIR) -> None:
+    """Day 25 bug fix: `reports_dir` used to be hardcoded to the real REPORTS_DIR, so every
+    call — including from test_run_seeded_error_evaluation_capture.py's own structural test,
+    which runs on every `pytest -m "not slow"` invocation — silently overwrote this repo's real
+    day20_seeded_error_evaluation.{md,json} with that test's mocked "noop_seed" data. Found
+    live: it clobbered this exact day's real seeded-error rerun results twice. Callers writing
+    real results (main(), below) use the default; the test now passes tmp_path instead.
+    """
+    reports_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "# Day 20 Reviewer Effectiveness — 6 Seeded Errors (spec §24.7)",
         "",
@@ -233,7 +252,7 @@ def write_report(results: list[dict]) -> None:
             f"| {r['seed']} | {r['outcome']} | {r['decision']} | "
             f"{r['duration_seconds']} | {_note_for(r)} |"
         )
-    (REPORTS_DIR / "day20_seeded_error_evaluation.md").write_text("\n".join(lines))
-    (REPORTS_DIR / "day20_seeded_error_evaluation.json").write_text(
+    (reports_dir / "day20_seeded_error_evaluation.md").write_text("\n".join(lines))
+    (reports_dir / "day20_seeded_error_evaluation.json").write_text(
         json.dumps(results, indent=2, default=str)
     )

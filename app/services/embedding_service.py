@@ -13,16 +13,18 @@ from app.config import get_settings
 
 
 @lru_cache
-def _load_model(model_name: str) -> SentenceTransformer:
-    return SentenceTransformer(model_name)
+def _load_model(model_name: str, device: str) -> SentenceTransformer:
+    return SentenceTransformer(model_name, device=device)
 
 
 class EmbeddingService:
     """Wraps the local bge-small model (§15) — 384-dim, cosine-normalized vectors."""
 
-    def __init__(self, model_name: str | None = None) -> None:
-        self.model_name = model_name or get_settings().embedding_model
-        self._model = _load_model(self.model_name)
+    def __init__(self, model_name: str | None = None, device: str | None = None) -> None:
+        settings = get_settings()
+        self.model_name = model_name or settings.embedding_model
+        self.device = device or settings.embedding_device
+        self._model = _load_model(self.model_name, self.device)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = self._model.encode(texts, normalize_embeddings=True)

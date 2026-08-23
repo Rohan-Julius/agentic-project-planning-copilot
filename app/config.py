@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     embedding_model: str = Field(
         default="BAAI/bge-small-en-v1.5", alias="EMBEDDING_MODEL"
     )
+    # Day 25: defaults to "cpu", not sentence-transformers' own auto-detected GPU (mps on
+    # Apple Silicon). Live-observed: this embedding model and Ollama's own loaded LLM sharing
+    # one GPU on the same machine produced both "Insufficient Memory
+    # kIOGPUCommandBufferCallbackErrorOutOfMemory" noise during embedding calls AND, on one
+    # live run, an outright HTTP 500 from Ollama's own /api/generate shortly after embedding
+    # activity -- plausibly the same GPU-contention class, not confirmed as the sole cause but
+    # a real, unnecessary risk either way. bge-small (33M params) is fast enough on CPU that
+    # this isn't a meaningful latency cost, and it fully removes any GPU contention with
+    # Ollama's LLM, which is where GPU acceleration actually matters. Override via
+    # EMBEDDING_DEVICE if your deployment doesn't share a GPU between the two services.
+    embedding_device: str = Field(default="cpu", alias="EMBEDDING_DEVICE")
 
     # --- Chunking (spec §6.3, DESIGN.md §5.1) ---
     chunk_token_limit: int = Field(default=512, alias="CHUNK_TOKEN_LIMIT")

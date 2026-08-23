@@ -1,35 +1,155 @@
 [
   {
-    "seed": "noop_seed",
+    "seed": "story_without_epic",
+    "outcome": "schema_rejected_before_review",
+    "decision": null,
+    "duration_seconds": 0.0,
+    "issues": [
+      "1 validation error for ProjectPlan\n  Value error, story 'US-001' references unknown epic_id 'EPIC-999-DOES-NOT-EXIST' (every story must belong to an epic in the same plan, spec \u00a77.3/\u00a730) [type=value_error, input_value={'summary': {'business_pr...e_criterion_ids': []}]}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+    ]
+  },
+  {
+    "seed": "missing_acceptance_criteria",
+    "outcome": "schema_rejected_before_review",
+    "decision": null,
+    "duration_seconds": 0.0,
+    "issues": [
+      "1 validation error for ProjectPlan\nstories.0.acceptance_criteria\n  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short"
+    ]
+  },
+  {
+    "seed": "invalid_citation",
     "outcome": "reviewer_ran",
     "decision": "REVISION_REQUIRED",
-    "duration_seconds": 0.0,
-    "unsupported_claims": [
+    "duration_seconds": 60.5,
+    "unsupported_claims": [],
+    "duplicate_stories": [],
+    "missing_acceptance_criteria": [],
+    "weak_acceptance_criteria": [],
+    "traceability_gaps": [
       {
-        "artifact_id": "US-001",
-        "issue_type": "UNSUPPORTED_CLAIM",
-        "description": "x",
-        "recommended_action": "y"
+        "artifact_id": "US-009",
+        "issue_type": "traceability_gap",
+        "description": "Story US-009 is not traced back to any requirement in the plan, violating traceability principles and creating a gap in requirement coverage.",
+        "recommended_action": "Link US-009 to a specific requirement (e.g., REQ-004, REQ-005, or REQ-012) that supports the monitoring dashboard functionality to ensure full traceability."
       }
     ],
+    "dependency_issues": [],
+    "missing_requirements": [],
+    "warnings": [],
+    "structural_errors": [
+      {
+        "artifact_id": "EPIC-001",
+        "code": "DANGLING_CITATION",
+        "message": "citation chunk_id 'doc_does_not_exist-CH-999' does not exist or was deleted"
+      }
+    ],
+    "structural_is_valid": false
+  },
+  {
+    "seed": "duplicate_story",
+    "outcome": "reviewer_ran",
+    "decision": "REVISION_REQUIRED",
+    "duration_seconds": 113.9,
+    "unsupported_claims": [],
+    "duplicate_stories": [
+      {
+        "artifact_id": "US-001-DUP",
+        "issue_type": "duplicate_stories",
+        "description": "A near-identical duplicate story exists for the same user journey as US-001, violating uniqueness and increasing maintenance overhead.",
+        "recommended_action": "Remove the duplicate story [US-001-DUP] and ensure only one instance of the order creation and payment initiation flow exists in the plan."
+      }
+    ],
+    "missing_acceptance_criteria": [],
+    "weak_acceptance_criteria": [],
+    "traceability_gaps": [
+      {
+        "artifact_id": "US-009",
+        "issue_type": "traceability_gaps",
+        "description": "The story [US-009] about the monitoring dashboard lacks a traceability link to any specific requirement, making it unclear how it supports functional or non-functional needs.",
+        "recommended_action": "Add a traceability link from [US-009] to a relevant requirement (e.g., REQ-013, REQ-014, or REQ-031) to ensure alignment with system objectives."
+      },
+      {
+        "artifact_id": "US-001-DUP",
+        "issue_type": "traceability_gaps",
+        "description": "The duplicate story [US-001-DUP] has no traceability link to any requirement, which undermines its validity and purpose in the plan.",
+        "recommended_action": "Remove the duplicate story [US-001-DUP] and ensure all stories are traceable to at least one requirement."
+      }
+    ],
+    "dependency_issues": [],
+    "missing_requirements": [],
+    "warnings": [],
+    "structural_errors": [
+      {
+        "artifact_id": "AC-001",
+        "code": "DUPLICATE_ID",
+        "message": "duplicate acceptance criterion id 'AC-001'"
+      }
+    ],
+    "structural_is_valid": false
+  },
+  {
+    "seed": "unsupported_requirement",
+    "outcome": "reviewer_ran",
+    "decision": "PASS_WITH_WARNINGS",
+    "duration_seconds": 75.1,
+    "unsupported_claims": [],
+    "duplicate_stories": [],
+    "missing_acceptance_criteria": [],
+    "weak_acceptance_criteria": [],
+    "traceability_gaps": [
+      {
+        "artifact_id": "US-009",
+        "issue_type": "traceability_gap",
+        "description": "Story US-009 is not traced back to any specific requirement in the plan, creating a gap in traceability from implementation to functional or non-functional requirement.",
+        "recommended_action": "Link US-009 to a specific requirement (e.g., REQ-004, REQ-005, or REQ-031) to ensure full traceability and alignment with system functionality."
+      }
+    ],
+    "dependency_issues": [],
+    "missing_requirements": [],
+    "warnings": [],
+    "structural_errors": [],
+    "structural_is_valid": true
+  },
+  {
+    "seed": "circular_dependency",
+    "outcome": "reviewer_ran",
+    "decision": "PASS_WITH_WARNINGS",
+    "duration_seconds": 142.9,
+    "unsupported_claims": [],
     "duplicate_stories": [],
     "missing_acceptance_criteria": [],
     "weak_acceptance_criteria": [
       {
         "artifact_id": "US-002",
-        "issue_type": "WEAK_AC",
-        "description": "x",
-        "recommended_action": "y"
+        "issue_type": "weak_acceptance_criteria",
+        "description": "The acceptance criteria for US-002 does not specify how the system validates the payment status update or what actions are taken upon successful processing beyond updating the internal state. This lacks sufficient detail to ensure testability and completeness.",
+        "recommended_action": "Enhance the acceptance criteria to explicitly define the validation logic and the specific outcome (e.g., state update, error handling) when a callback is processed successfully."
+      },
+      {
+        "artifact_id": "US-007",
+        "issue_type": "weak_acceptance_criteria",
+        "description": "The acceptance criteria for US-007 does not specify which actors are authorized to trigger state transitions or how the actor is determined (e.g., webhook, customer, support agent). This introduces ambiguity in testability and operational clarity.",
+        "recommended_action": "Clarify the acceptance criteria to explicitly define the actors that can trigger state transitions and how the actor identity is captured in the audit log."
+      },
+      {
+        "artifact_id": "US-008",
+        "issue_type": "weak_acceptance_criteria",
+        "description": "The acceptance criteria for US-008 does not specify the content or structure of the email notification, which is required by REQ-011. This makes it impossible to verify compliance with the requirement.",
+        "recommended_action": "Add a detailed specification of the email content, including subject line, body, and fields such as refund amount, order ID, and status, to ensure testability and alignment with REQ-011."
       }
     ],
-    "traceability_gaps": [],
+    "traceability_gaps": [
+      {
+        "artifact_id": "US-009",
+        "issue_type": "traceability_gaps",
+        "description": "US-009 is not linked to any requirement in the plan, creating a traceability gap for the monitoring dashboard implementation. This undermines accountability and compliance verification.",
+        "recommended_action": "Link US-009 to REQ-031, which recommends implementing a monitoring dashboard for webhook delivery metrics, to ensure full traceability and alignment with functional requirements."
+      }
+    ],
     "dependency_issues": [],
-    "missing_requirements": [
-      "REQ-9 not represented"
-    ],
-    "warnings": [
-      "Sprint 3 has no stories"
-    ],
+    "missing_requirements": [],
+    "warnings": [],
     "structural_errors": [],
     "structural_is_valid": true
   }
