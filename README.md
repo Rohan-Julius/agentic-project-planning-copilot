@@ -59,22 +59,30 @@ to using or extending the project.
 
 ```mermaid
 graph TD
-    Start([Upload & index documents]) --> Supervisor{Supervisor}
-    Supervisor -->|no requirements yet| RA[Requirement Analyst]
-    RA --> Supervisor
-    Supervisor -->|clarifications pending| CG[/Human: Clarification Gate/]
-    CG --> Supervisor
-    Supervisor -->|ready to plan| Plan[Planning Agent]
-    Plan --> Supervisor
-    Supervisor -->|plan ready| Rev[Reviewer Agent]
-    Rev --> Supervisor
-    Supervisor -->|revision needed, 1x max| Revise[Planning Agent: revise]
-    Revise --> Supervisor
-    Supervisor -->|ready for approval| FG[/Human: Final Approval Gate/]
-    FG --> Supervisor
-    Supervisor -->|approved| Export[Export: JSON / Markdown / Jira CSV / ZIP]
-    Supervisor -->|unrecoverable error| Stop([Stop with Error])
+    Start([Upload & index documents]) --> RA[Requirement Analyst]
+    RA --> S1{Supervisor}
+    S1 -->|clarifications pending| CG[/Human: answer clarifications/]
+    CG --> S1
+    S1 -->|ready to plan| Plan[Planning Agent]
+    S1 -.->|unrecoverable error| Stop([Stop with error])
+    Plan --> Rev[Reviewer Agent]
+    Rev --> S2{Supervisor}
+    S2 -->|revision needed, 1x max| Revise[Planning Agent: revise]
+    Revise --> Rev
+    S2 -->|revision limit exceeded| Stop
+    S2 -->|plan passes review| FG[/Human: approve final plan/]
+    S2 -.->|unrecoverable error| Stop
+    FG --> Export[Export: JSON / Markdown / Jira CSV / ZIP]
+
+    classDef humanGate fill:#a7f3d0,stroke:#059669,color:#064e3b
+    classDef stopNode fill:#fecaca,stroke:#dc2626,color:#7f1d1d
+    class CG,FG humanGate
+    class Stop stopNode
 ```
+
+*(The "Supervisor" nodes above represent the same agent, re-evaluating state after each step —
+simplified here to two checkpoints for readability; the real workflow re-evaluates after every
+node, including after a revision.)*
 
 Four specialist agents, each with one clear responsibility:
 
