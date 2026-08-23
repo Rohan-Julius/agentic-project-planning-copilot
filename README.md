@@ -50,7 +50,7 @@ to using or extending the project.
 - **Plan version history** — every regeneration is preserved; compare generation
   timestamp, model, prompt version, and content across versions.
 - **Jira-ready export** — JSON, Markdown, a Jira-compatible CSV, and a bundled ZIP.
-- **Evaluated, not just built** — 372 automated tests plus a dedicated evaluation suite
+- **Evaluated, not just built** — 394 automated tests plus a dedicated evaluation suite
   measuring extraction accuracy, routing correctness, retrieval quality, and reviewer
   effectiveness against three synthetic project scenarios — see
   [Evaluation results](#evaluation-results) below.
