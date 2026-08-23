@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+from typing import Callable
 
 import httpx
 import ollama
@@ -152,6 +152,25 @@ def run_agent(
                     f"Schema validation failed {max_retries + 1} times. Last error: {last_error}",
                 )
 
+        except ollama.ResponseError as e:
+            # A 5xx from Ollama itself is environmental, not a content problem — e.g.
+            # live-observed (Day 25 demo rehearsal): a transient HTTP 500 during a
+            # GPU-memory-contention moment between Ollama's own loaded model and the
+            # embedding model's concurrent MPS/Metal usage on the same machine. The existing
+            # retry-once policy (§20.1) only covered schema-validation failures; a 5xx here
+            # got zero retries and failed the whole run outright. Retrying the identical call
+            # once (no prompt change — the prompt wasn't the problem) extends that same
+            # policy to this failure class. A non-5xx ResponseError (a genuine bad request) is
+            # not retried — retrying an inherently malformed request would just fail
+            # identically again, so it still fails fast.
+            last_error = f"{e} (status {e.status_code})"
+            if e.status_code >= 500 and attempt < max_retries + 1:
+                logger.warning(
+                    f"[{agent_name}] transient Ollama server error on attempt {attempt}: "
+                    f"{last_error} — retrying"
+                )
+            else:
+                raise AgentError(agent_name, f"Ollama returned an error: {last_error}")
         except httpx.ConnectError as e:
             raise AgentError(agent_name, f"Ollama not reachable at {settings.ollama_host}: {e}")
         except Exception as e:

@@ -146,6 +146,11 @@ def _epics_result() -> PlanningEpicsResult:
                 business_value="Reduces support load",
                 priority="Medium",
                 classification="AI_RECOMMENDATION",
+                # Grounded to REQ-1 too (not empty — Day 25 made this field required; see
+                # EpicDraft.grounding_requirement_ids). Deliberately the same id as EPIC-001,
+                # not REQ-2 — this epic still needs to read as "not covering REQ-2" for the
+                # coverage-backfill tests below that use _epics().
+                grounding_requirement_ids=["REQ-1"],
             ),
         ]
     )
@@ -264,6 +269,7 @@ def test_user_story_draft_rejects_a_missing_or_null_story_point_estimate():
         ],
         confidence=0.85,
         classification="AI_RECOMMENDATION",
+        grounding_requirement_ids=["REQ-1"],
     )
 
     with pytest.raises(ValidationError):
@@ -379,39 +385,32 @@ def test_epic_fallback_citation_is_still_corrected_when_grounding_does_not_resol
         )
         session.commit()
 
-    ungrounded_but_real_chunk = PlanningEpicsResult(
-        epics=[
-            EpicDraft(
-                title="Ungrounded Epic",
-                objective="Not linked to any approved requirement",
-                business_value="Unclear",
-                priority="Low",
-                classification="SOURCE_BACKED",
-                source_references=[
-                    SourceReference(
-                        document_name="invented.pdf", page_number=1, section="Invented Section",
-                        chunk_id="DOC-2-CH-007",  # real chunk_id, wrong other fields
-                    )
-                ],
-                grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
+    ungrounded_but_real_chunk_draft = EpicDraft(
+        title="Ungrounded Epic",
+        objective="Not linked to any approved requirement",
+        business_value="Unclear",
+        priority="Low",
+        classification="SOURCE_BACKED",
+        source_references=[
+            SourceReference(
+                document_name="invented.pdf", page_number=1, section="Invented Section",
+                chunk_id="DOC-2-CH-007",  # real chunk_id, wrong other fields
             )
-        ]
+        ],
+        grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
     )
 
-    from app.schemas.planning import EpicCoverageBackfillResult
+    # Calls _assign_epic_ids directly, not run_planning_agent_summary_scope_epics — Day 25
+    # added a further deterministic step to that top-level function (_drop_ungrounded_items)
+    # that would drop this epic entirely, since REQ-DOES-NOT-EXIST resolves to nothing (see
+    # the dedicated test for that below). This test is specifically about the fallback
+    # citation-correction mechanism *inside* _assign_epic_ids, which still runs on an epic
+    # before any caller decides whether to keep or drop it.
+    from app.agents.planning import _assign_epic_ids
 
-    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
-        "app.agents.planning.run_agent",
-        # 3rd item: this epic's grounding doesn't cover REQ-1 either, so the coverage
-        # backfill call (Day 22) also fires — a no-op assignment list is fine, this test is
-        # only about the fallback citation correction, not coverage.
-        side_effect=[_summary_scope_result(), ungrounded_but_real_chunk, EpicCoverageBackfillResult()],
-    ):
-        from app.agents.planning import run_planning_agent_summary_scope_epics
-
-        _, _, epics = run_planning_agent_summary_scope_epics(
-            "PRJ-PLAN", "RUN-1", session_factory=session_factory
-        )
+    epics = _assign_epic_ids(
+        [ungrounded_but_real_chunk_draft], [_requirement()], "PRJ-PLAN", session_factory=session_factory,
+    )
 
     assert epics[0].source_references[0].document_name == "standards.md"
     assert epics[0].source_references[0].section == "Real Section"
@@ -440,6 +439,103 @@ def test_assign_epic_ids_still_rejects_source_backed_epic_with_no_resolvable_gro
 
     with pytest.raises(ValidationError):
         _assign_epic_ids([ungrounded_draft], [_requirement()], "PRJ-PLAN", session_factory=session_factory)
+
+
+def test_drop_ungrounded_items_drops_items_with_no_resolving_requirement_id():
+    """Unit test for the deterministic backstop itself (Day 25, spec §12.6/§7.3)."""
+    from app.agents.planning import _drop_ungrounded_items
+
+    class _Fake:
+        def __init__(self, grounding_requirement_ids):
+            self.grounding_requirement_ids = grounding_requirement_ids
+
+    requirements_by_id = {"REQ-1": _requirement()}
+    items = [
+        _Fake(["REQ-1"]),  # real grounding — kept
+        _Fake(["REQ-1", "REQ-FAKE"]),  # partial mismatch — kept, not treated as fabrication
+        _Fake(["REQ-FAKE"]),  # zero real grounding — dropped
+    ]
+
+    kept = _drop_ungrounded_items(items, requirements_by_id, "item")
+
+    assert kept == [items[0], items[1]]
+
+
+def test_run_planning_agent_summary_scope_epics_drops_fabricated_scope_invention_epic(session_factory):
+    """Regression test for the Day 20 live-run finding (evaluation/reports/
+    day20_evaluation_report.md §24.7 "Bonus finding"): a Planning call fabricated a "Mobile
+    Device Support" epic with no basis anywhere in the source document, classified
+    ASSUMPTION/AI_RECOMMENDATION — so GroundedMixin's SOURCE_BACKED-only citation check never
+    caught it, and it reached the plan (the Reviewer happened to flag it afterwards, but §12.6
+    says it should never have been generated at all). Reproduces that exact shape: an
+    AI_RECOMMENDATION epic whose only grounding_requirement_ids entry doesn't resolve to any
+    approved requirement.
+    """
+    from app.schemas.planning import EpicCoverageBackfillResult
+
+    fabricated_scope = PlanningEpicsResult(
+        epics=[
+            EpicDraft(
+                title="Card Payments",
+                objective="Let customers pay by card",
+                business_value="Unlocks online revenue",
+                priority="High",
+                classification="SOURCE_BACKED",
+                source_references=[SourceReference(**CITATION)],
+                grounding_requirement_ids=["REQ-1"],
+            ),
+            EpicDraft(
+                title="Mobile Device Support",
+                objective="Support mobile devices",
+                business_value="Broader reach",
+                priority="Low",
+                classification="AI_RECOMMENDATION",
+                grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
+            ),
+        ]
+    )
+
+    with patch("app.agents.planning.search_company_standards", return_value=[]), patch(
+        "app.agents.planning.run_agent",
+        side_effect=[_summary_scope_result(), fabricated_scope, EpicCoverageBackfillResult()],
+    ):
+        from app.agents.planning import run_planning_agent_summary_scope_epics
+
+        _, _, epics = run_planning_agent_summary_scope_epics(
+            "PRJ-PLAN", "RUN-1", session_factory=session_factory
+        )
+
+    assert [e.title for e in epics] == ["Card Payments"]
+
+
+def test_generate_stories_drops_fabricated_scope_invention_story():
+    """Story-side counterpart of the epic regression test above — the Day 20 finding included
+    both a fabricated epic and an ASSUMPTION-classified story about the same invented feature.
+    """
+    from app.agents.planning import _generate_stories
+
+    fabricated_story = PlanningStoriesResult(
+        stories=[
+            UserStoryDraft(
+                epic_id="EPIC-001",
+                title="Use the app on a mobile device",
+                persona="User",
+                story_statement="As a user, I want to use the app on my phone, so that I have mobile access.",
+                business_value="Broader reach",
+                priority="Low",
+                acceptance_criteria=[AcceptanceCriterionDraft(given="x", when="y", then="z")],
+                suggested_story_points=3,
+                confidence=0.4,
+                classification="ASSUMPTION",
+                grounding_requirement_ids=["REQ-DOES-NOT-EXIST"],
+            )
+        ]
+    )
+
+    with patch("app.agents.planning.run_agent", return_value=fabricated_story):
+        stories = _generate_stories(_project_info(), [_requirement()], [], [], _epics(), "PRJ-PLAN")
+
+    assert stories == []
 
 
 def test_planning_agent_prompt_includes_only_answered_clarifications(session_factory):
@@ -538,9 +634,9 @@ def _requirement() -> Requirement:
 def _epics() -> list:
     from app.agents.planning import _assign_epic_ids
 
-    # session_factory=None is safe here: _epics_result()'s one ungrounded epic (EPIC-002) has
-    # empty source_references, so correct_source_references' fast path (`if not refs: return
-    # refs`) returns before ever touching a session_factory.
+    # session_factory=None is safe here: both of _epics_result()'s epics are grounded to REQ-1,
+    # so _grounded_source_references resolves a real citation for each and
+    # correct_source_references (which would need session_factory) is never called.
     return _assign_epic_ids(_epics_result().epics, [_requirement()], "PRJ-PLAN", session_factory=None)
 
 
@@ -713,6 +809,7 @@ def test_generate_stories_drops_story_referencing_unknown_epic():
                 suggested_story_points=2,
                 confidence=0.5,
                 classification="AI_RECOMMENDATION",
+                grounding_requirement_ids=["REQ-1"],
             )
         ]
     )

@@ -1,8 +1,7 @@
 """Tests for shared agent runner with Ollama structured output (spec §14, DESIGN.md §8)."""
-import json
 import pytest
-from unittest.mock import Mock, patch
-from pydantic import BaseModel, Field, ValidationError
+from unittest.mock import patch
+from pydantic import BaseModel, Field
 from app.agents.runner import run_agent, AgentError
 
 
@@ -99,6 +98,79 @@ def test_run_agent_truncated_json_retry_asks_for_shorter_text():
     assert "cut off" in second_call_prompt
     assert "short" in second_call_prompt.lower()
     assert "match the expected schema" not in second_call_prompt
+
+
+def test_run_agent_retries_once_on_transient_ollama_server_error():
+    """Live-observed failure class (Day 25 demo rehearsal, 2026-08-22): Ollama itself returned
+    an HTTP 500 mid-run (GPU-memory contention with the embedding model's concurrent MPS/Metal
+    usage), not a malformed response — but the original retry-once policy (§20.1) only covered
+    schema-validation failures, so this failed the whole run with zero retries. A 5xx is
+    retried once, identically (no prompt mutation — the prompt wasn't the problem).
+    """
+    import ollama
+
+    valid_json = '{"action": "proceed", "reason": "recovered"}'
+    mock_calls = [
+        ollama.ResponseError("Internal Server Error", status_code=500),
+        {"response": valid_json},
+    ]
+
+    with patch("ollama.generate", side_effect=mock_calls) as mock_generate:
+        result = run_agent(
+            agent_name="test",
+            prompt="Decide",
+            output_model=SimpleDecision,
+            tools=[],
+            max_retries=1,
+        )
+
+    assert result.action == "proceed"
+    # No prompt mutation on this retry class — both calls get the identical prompt.
+    first_call_prompt = mock_generate.call_args_list[0].kwargs["prompt"]
+    second_call_prompt = mock_generate.call_args_list[1].kwargs["prompt"]
+    assert first_call_prompt == second_call_prompt
+
+
+def test_run_agent_transient_ollama_server_error_twice_raises():
+    """Two 5xx errors in a row (retries exhausted) still raises AgentError, not an infinite
+    loop or a silent None."""
+    import ollama
+
+    with patch(
+        "ollama.generate", side_effect=ollama.ResponseError("Internal Server Error", status_code=500)
+    ):
+        with pytest.raises(AgentError) as exc_info:
+            run_agent(
+                agent_name="test",
+                prompt="Decide",
+                output_model=SimpleDecision,
+                tools=[],
+                max_retries=1,
+            )
+
+    assert "Ollama returned an error" in str(exc_info.value)
+
+
+def test_run_agent_client_error_from_ollama_is_not_retried():
+    """A non-5xx ResponseError (e.g. a genuine bad request) fails immediately — retrying an
+    inherently malformed request would just fail identically again, so this should NOT consume
+    a retry attempt or call ollama.generate a second time.
+    """
+    import ollama
+
+    with patch(
+        "ollama.generate", side_effect=ollama.ResponseError("Bad Request", status_code=400)
+    ) as mock_generate:
+        with pytest.raises(AgentError):
+            run_agent(
+                agent_name="test",
+                prompt="Decide",
+                output_model=SimpleDecision,
+                tools=[],
+                max_retries=1,
+            )
+
+    assert mock_generate.call_count == 1
 
 
 def test_run_agent_ollama_unreachable():

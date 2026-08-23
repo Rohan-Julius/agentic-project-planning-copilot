@@ -239,6 +239,7 @@ def test_epic_draft_has_no_epic_id_field():
         priority="High",
         classification="SOURCE_BACKED",
         source_references=[SOURCE],
+        grounding_requirement_ids=["REQ-1"],
     )
     assert "epic_id" not in EpicDraft.model_fields
     assert draft.title == "Payments"
@@ -256,6 +257,7 @@ def test_planning_epics_result_wraps_epic_drafts():
                 priority="High",
                 classification="SOURCE_BACKED",
                 source_references=[SOURCE],
+                grounding_requirement_ids=["REQ-1"],
             )
         ]
     )

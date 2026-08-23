@@ -209,6 +209,36 @@ def _grounded_source_references(
     return refs
 
 
+def _drop_ungrounded_items(items: list, requirements_by_id: dict[str, Requirement], item_kind: str) -> list:
+    """Deterministic backstop for spec §12.6's NO-EVIDENCE BEHAVIOUR ("if the approved
+    requirements do not support a distinct epic/story, do not invent one — return fewer
+    rather than fabricate") and §7.3's "avoid deciding... scope not specified".
+
+    `EpicDraft`/`UserStoryDraft.grounding_requirement_ids` is now a required, non-empty field
+    (Day 25) so the model can no longer submit an empty list — but a required field only
+    forces *something* to be named, not that it's real. This drops any item whose
+    grounding_requirement_ids contains ZERO ids that resolve to a real approved requirement —
+    the exact signature a Day 20 live run's fabricated "Mobile Device Support" epic/story pair
+    exhibited (classified ASSUMPTION/AI_RECOMMENDATION, so GroundedMixin's SOURCE_BACKED-only
+    citation check never caught it). An item with at least one real, resolving id is kept even
+    if it also lists other, non-resolving ones — a partial mismatch reads as a minor id typo,
+    not fabrication.
+    """
+    kept = []
+    dropped_count = 0
+    for item in items:
+        if any(rid in requirements_by_id for rid in item.grounding_requirement_ids):
+            kept.append(item)
+        else:
+            dropped_count += 1
+    if dropped_count:
+        logger.warning(
+            f"[Planning] dropped {dropped_count} {item_kind}(s) with no real requirement "
+            f"grounding (spec §12.6 NO-EVIDENCE BEHAVIOUR enforced deterministically)"
+        )
+    return kept
+
+
 def _assign_epic_ids(
     drafts: list[EpicDraft],
     requirements: list[Requirement],
@@ -480,6 +510,12 @@ COMPANY STANDARDS:
         )
         epics = _backfill_epic_coverage(epics, requirements, uncovered_ids)
 
+    # Deterministic scope-invention backstop (Day 25, spec §12.6/§7.3) — after backfill has
+    # had its chance to attach a real requirement, drop any epic that still names none. See
+    # _drop_ungrounded_items's docstring.
+    requirements_by_id = {r.requirement_id: r for r in requirements}
+    epics = _drop_ungrounded_items(epics, requirements_by_id, "epic")
+
     logger.info(f"[Planning] generated {len(epics)} epics")
 
     return summary_scope.summary, summary_scope.scope, epics
@@ -626,6 +662,11 @@ COMPANY STANDARDS:
     )
     known_epic_ids = {e.epic_id for e in epics}
     valid_drafts = _filter_stories_with_unknown_epic(result.stories, known_epic_ids)
+    # Deterministic scope-invention backstop (Day 25, spec §12.6/§7.3) — same fix as epics'
+    # (see _drop_ungrounded_items's docstring); filtered before ID assignment, same as the
+    # unknown-epic filter just above, so surviving stories keep clean sequential US-NNN ids.
+    requirements_by_id = {r.requirement_id: r for r in requirements}
+    valid_drafts = _drop_ungrounded_items(valid_drafts, requirements_by_id, "story")
     return _assign_story_and_ac_ids(
         valid_drafts, requirements, project_id, session_factory=session_factory,
     )

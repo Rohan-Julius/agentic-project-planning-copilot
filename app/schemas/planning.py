@@ -100,7 +100,17 @@ class EpicDraft(_DraftGrounding):
     priority: Priority
     dependencies: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
-    grounding_requirement_ids: list[str] = Field(default_factory=list)
+    # Day 25: was `= Field(default_factory=list)` — Day 20 found a live run's Planning call
+    # fabricated a "Mobile Device Support" epic with no basis anywhere in the source document
+    # (classified ASSUMPTION/AI_RECOMMENDATION, so GroundedMixin's SOURCE_BACKED-needs-citation
+    # check never applied to it — that safety net only guards one classification, not "is this
+    # grounded in a real requirement at all"). An optional list defaulting to empty is a legal
+    # completion under Ollama's JSON-schema-constrained decoding regardless of classification —
+    # the same "schema over prompt" gap already fixed for story points and dependency
+    # descriptions. Requiring at least one id here doesn't by itself guarantee the id is real
+    # (the model could still name a nonexistent one) — see `_drop_ungrounded_items`, the
+    # deterministic backstop that catches that.
+    grounding_requirement_ids: list[str] = Field(min_length=1)
 
 
 class PlanningSummaryScopeResult(BaseModel):
@@ -172,7 +182,10 @@ class UserStoryDraft(_DraftGrounding):
     # constrained decoding, can no longer produce it directly at this call site.
     suggested_story_points: int = Field(ge=1)
     confidence: float = Field(ge=0.0, le=1.0)
-    grounding_requirement_ids: list[str] = Field(default_factory=list)
+    # Day 25: same fix as EpicDraft.grounding_requirement_ids above, same reason (Day 20's
+    # fabricated "mobile device support" finding included an ASSUMPTION-classified story, not
+    # just an epic) — see that field's docstring.
+    grounding_requirement_ids: list[str] = Field(min_length=1)
 
 
 class PlanningStoriesResult(BaseModel):
