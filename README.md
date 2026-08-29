@@ -33,27 +33,46 @@ to using or extending the project.
 
 ## Features
 
-- **Four specialist agents** coordinated by a LangGraph state graph, each reachable only
+### Planning pipeline
+
+- **Multi-format ingestion.** PDF, DOCX, TXT, and Markdown, with heading-aware chunking and
+  hybrid retrieval (dense embeddings plus BM25, fused with Reciprocal Rank Fusion).
+- **Complete artifact set.** Epics, user stories with Given/When/Then acceptance criteria,
+  technical tasks, dependencies, a RAID log, and an Agile sprint plan, each traceable to its
+  source requirement.
+- **Jira-ready export.** JSON, Markdown, DOCX, a Jira-compatible CSV, and a bundled ZIP.
+
+### Agents and safeguards
+
+- **Four specialist agents.** Coordinated by a LangGraph state graph and reachable only
   through registered tools — no shell access, no arbitrary code execution.
-- **Multi-format document ingestion** — PDF, DOCX, TXT, Markdown — with heading-aware
-  chunking and hybrid retrieval (dense + BM25, fused with Reciprocal Rank Fusion).
-- **Strict, deterministic grounding** — every important item is classified SOURCE_BACKED /
+- **Independent review.** The Planning Agent never grades its own output; a separate Reviewer
+  can send the plan back for exactly one revision cycle, never more.
+- **Two mandatory approval gates.** Clarification review and final plan approval are
+  human-only. Agents cannot self-approve or export an unapproved plan as approved.
+- **Deterministic grounding.** Every important item is classified SOURCE_BACKED /
   CLARIFICATION_BACKED / ASSUMPTION / AI_RECOMMENDATION, and every SOURCE_BACKED claim carries
-  a citation that's verified against real chunk metadata, not just trusted from the model.
-- **Independent review + one bounded revision cycle** — the Planning Agent never grades
-  its own output; the Reviewer can send it back for exactly one revision, never more.
-- **Two mandatory human approval gates** — clarification review and final plan approval.
-  Agents can never self-approve or export an unapproved plan as approved.
-- **Full artifact set** — epics, user stories with Given/When/Then acceptance criteria,
-  technical tasks, dependencies, a RAID log, and an Agile sprint plan, all traceable back to
-  their source requirement.
-- **Plan version history** — every regeneration is preserved; compare generation
-  timestamp, model, prompt version, and content across versions.
-- **Jira-ready export** — JSON, Markdown, a Jira-compatible CSV, and a bundled ZIP.
-- **Evaluated, not just built** — 394 automated tests plus a dedicated evaluation suite
-  measuring extraction accuracy, routing correctness, retrieval quality, and reviewer
-  effectiveness against three synthetic project scenarios — see
-  [Evaluation results](#evaluation-results) below.
+  a citation verified against real chunk metadata rather than trusted from the model.
+
+### Working with plans
+
+- **Version history and diffing.** Every regeneration is preserved, and a comparison view
+  diffs any two versions across epics, stories, tasks, and dependencies.
+- **Selective regeneration.** Rebuild just the sprint plan, or just tasks, dependencies, and
+  RAID, without regenerating epics and stories. Plan approval resets automatically, so a
+  regenerated plan can never export as approved without re-review.
+- **Requirement-change impact analysis.** Trace every epic, story, task, and dependency back
+  to a given requirement, reusing the existing traceability matrix.
+- **Visual dependency graph.** A layered dependency-DAG view alongside the list, with cycle
+  detection.
+- **Execution replay.** Step, scrub, and replay a run's execution log after the fact, not
+  only while it runs.
+
+### Evaluation
+
+- **Measured, not just built.** 394 automated tests plus a dedicated evaluation suite covering
+  extraction accuracy, routing correctness, retrieval quality, and reviewer effectiveness
+  across three synthetic project scenarios — see [Evaluation results](#evaluation-results).
 
 ## Architecture
 
@@ -80,48 +99,57 @@ graph TD
     class Stop stopNode
 ```
 
-*(The "Supervisor" nodes above represent the same agent, re-evaluating state after each step —
-simplified here to two checkpoints for readability; the real workflow re-evaluates after every
-node, including after a revision.)*
+> The two "Supervisor" nodes are the same agent re-evaluating state after each step. The
+> diagram simplifies this to two checkpoints for readability; the real workflow re-evaluates
+> after every node, including after a revision.
 
-Four specialist agents, each with one clear responsibility:
+### Agents
 
-- **Supervisor** — decides which agent runs next; never generates artifacts, never self-approves.
-- **Requirement Analyst** — extracts requirements, flags contradictions and ambiguities, asks
-  clarifying questions instead of guessing.
-- **Planning Agent** — synthesizes the actual plan from approved requirements.
-- **Reviewer Agent** — independently QAs the plan against the source documents and mandatory
-  schemas. It's a *separate* agent by design, so the planner never grades its own homework.
+- **Supervisor** — decides which agent runs next. Never generates artifacts, never self-approves.
+- **Requirement Analyst** — extracts requirements, flags contradictions and ambiguities, and
+  asks clarifying questions instead of guessing.
+- **Planning Agent** — synthesizes the plan from approved requirements.
+- **Reviewer Agent** — independently QAs the plan against the source documents and required
+  schemas. It is a separate agent by design, so the planner never grades its own work.
 
-The Supervisor is a hub, not a pipeline stage — every agent routes back through it, and a
-**deterministic router** (not the Supervisor's own judgment) enforces loop limits and gate
-rules, so a misbehaving LLM call can never cause an infinite loop or skip a human approval.
-Shared workflow state holds only IDs, flags, and counters — never document or artifact content,
-which lives in SQLite/Qdrant instead (§19's own design constraint: keep the graph state small
-and reference-only).
+### Control flow
+
+The Supervisor is a hub rather than a pipeline stage: every agent routes back through it. A
+deterministic router, not the Supervisor's judgment, enforces loop limits and gate rules, so a
+misbehaving LLM call cannot cause an infinite loop or skip a human approval. Shared workflow
+state holds only IDs, flags, and counters; document and artifact content lives in SQLite and
+Qdrant.
+
+### Deterministic core
 
 Everything mechanical — document parsing, chunking, embedding, schema validation, duplicate
-detection, traceability checks, CSV generation — is deterministic Python, not agent reasoning;
-only judgment calls go through an LLM. This split is a hard rule the codebase enforces
-throughout: deterministic work never moves into a prompt, and agent judgment never substitutes
-for a mechanical check (a Pydantic validator, not the Reviewer's own opinion, is what
-ultimately blocks a plan with a duplicate ID or a dangling citation from being accepted).
+detection, traceability checks, CSV generation — is deterministic Python. Only judgment calls
+go through an LLM, and the split is enforced throughout: a Pydantic validator, not the
+Reviewer's opinion, is what blocks a plan with a duplicate ID or a dangling citation.
 
-**Retrieval (RAG) pipeline**: uploaded documents are parsed (PyMuPDF/python-docx/plain text),
-split with heading-aware chunking, embedded locally (`bge-small-en-v1.5`), and stored in two
-isolated Qdrant collections — `project_knowledge` (strictly filtered by `project_id`, never
-crosses between projects) and `organizational_knowledge` (shared company standards). Every
-query runs dense search and BM25 over the same candidate set, fused with Reciprocal Rank
-Fusion, and every result carries full provenance (document, page, section, chunk ID) so a
-citation can always be traced back to real source text.
+### Retrieval (RAG)
 
-**Guardrails that hold regardless of what the model does**: agents reach the system only
-through registered tools — there's no shell tool, no arbitrary-code tool, and no path for a
-prompt-injected instruction in an uploaded document to reach privileged state (`final_approved`
-and `clarification_approved` are only ever set by the two human-approval API endpoints,
-confirmed by a source-scan test, not just documented). Loop limits (one requirement-analysis
-retry, one schema-validation retry, one planning revision, one reviewer rerun) are plain Python
-counters checked by the router, never left to an agent's own judgment about when to stop.
+Uploaded documents are parsed (PyMuPDF, python-docx, or plain text), split with heading-aware
+chunking, embedded locally with `bge-small-en-v1.5`, and stored in two isolated Qdrant
+collections:
+
+- `project_knowledge` — strictly filtered by `project_id`; never crosses between projects.
+- `organizational_knowledge` — shared company standards.
+
+Every query runs dense search and BM25 over the same candidate set, fused with Reciprocal Rank
+Fusion. Each result carries full provenance (document, page, section, chunk ID), so a citation
+can always be traced back to real source text.
+
+### Guardrails
+
+- Agents reach the system only through registered tools. There is no shell tool and no
+  arbitrary-code tool.
+- Privileged state (`final_approved`, `clarification_approved`) is set only by the two
+  human-approval API endpoints, verified by a source-scan test — so a prompt-injected
+  instruction in an uploaded document cannot reach it.
+- Loop limits (one requirement-analysis retry, one schema-validation retry, one planning
+  revision, one reviewer rerun) are plain Python counters checked by the router, never left to
+  an agent's judgment.
 
 ## Quick start
 
@@ -164,14 +192,14 @@ Full detail on every screen: [USER_GUIDE.md](USER_GUIDE.md).
 
 ## Evaluation results
 
-| Area | Result | Report |
-|---|---|---|
-| Requirement extraction | 97.9% of gold-standard requirements found, 0 invented | [Day 19](evaluation/reports/day19_evaluation_report.md) |
-| Clarification quality | 100% of generated questions judged useful | [Day 19](evaluation/reports/day19_evaluation_report.md) |
-| Retrieval | 100% correct-source across 32 queries, ~20ms mean latency | [Day 21](evaluation/reports/day21_evaluation_report.md) |
-| Requirement → plan coverage | 100% (0 gaps), up from a 71% baseline | [Day 22](evaluation/reports/day22_evaluation_report.md) · [Day 23](evaluation/reports/day23_evaluation_report.md) |
-| Citation accuracy | 100% across every live-verified run | [Day 22](evaluation/reports/day22_evaluation_report.md) · [Day 23](evaluation/reports/day23_evaluation_report.md) |
-| Final plan structural validity | Confirmed valid after a full revision cycle | [Day 23](evaluation/reports/day23_evaluation_report.md) |
+| Area                           | Result                                                    | Report                                                                                                            |
+| ------------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Requirement extraction         | 97.9% of gold-standard requirements found, 0 invented     | [Day 19](evaluation/reports/day19_evaluation_report.md)                                                           |
+| Clarification quality          | 100% of generated questions judged useful                 | [Day 19](evaluation/reports/day19_evaluation_report.md)                                                           |
+| Retrieval                      | 100% correct-source across 32 queries, ~20ms mean latency | [Day 21](evaluation/reports/day21_evaluation_report.md)                                                           |
+| Requirement → plan coverage    | 100% (0 gaps), up from a 71% baseline                     | [Day 22](evaluation/reports/day22_evaluation_report.md) · [Day 23](evaluation/reports/day23_evaluation_report.md) |
+| Citation accuracy              | 100% across every live-verified run                       | [Day 22](evaluation/reports/day22_evaluation_report.md) · [Day 23](evaluation/reports/day23_evaluation_report.md) |
+| Final plan structural validity | Confirmed valid after a full revision cycle               | [Day 23](evaluation/reports/day23_evaluation_report.md)                                                           |
 
 Every number above comes from a live run against `qwen3:4b-instruct` (not a mocked model) —
 full methodology, raw data, and honestly-reported findings are in each linked report.
@@ -204,18 +232,18 @@ project lives only in a local, untracked file:
 
 ## Tech stack
 
-| Layer | Choice |
-|---|---|
-| Language | Python 3.12+ |
-| Agent orchestration | LangGraph |
-| Local LLM runtime | Ollama, `qwen3:4b-instruct` |
-| Embeddings | Sentence-Transformers, `BAAI/bge-small-en-v1.5` |
-| Vector store | Qdrant (embedded, file-backed by default — no server required) |
-| Backend | FastAPI, Pydantic, SQLAlchemy, SQLite |
-| Frontend | React, TypeScript, Vite |
-| Document parsing | PyMuPDF (PDF), python-docx (DOCX) |
-| Testing | Pytest, FastAPI TestClient, Vitest |
-| Packaging | Docker, Docker Compose |
+| Layer               | Choice                                                         |
+| ------------------- | -------------------------------------------------------------- |
+| Language            | Python 3.12+                                                   |
+| Agent orchestration | LangGraph                                                      |
+| Local LLM runtime   | Ollama, `qwen3:4b-instruct`                                    |
+| Embeddings          | Sentence-Transformers, `BAAI/bge-small-en-v1.5`                |
+| Vector store        | Qdrant (embedded, file-backed by default — no server required) |
+| Backend             | FastAPI, Pydantic, SQLAlchemy, SQLite                          |
+| Frontend            | React, TypeScript, Vite                                        |
+| Document parsing    | PyMuPDF (PDF), python-docx (DOCX)                              |
+| Testing             | Pytest, FastAPI TestClient, Vitest                             |
+| Packaging           | Docker, Docker Compose                                         |
 
 No paid API is required anywhere in the stack.
 
@@ -248,38 +276,18 @@ instead of synchronous requests).
 
 ## Future improvements
 
-### Stretch goals attempted or still open
+- **GPU or faster-model inference.** CPU-only latency is the biggest practical limitation
+  (see [Known limitations](#known-limitations)). GPU-accelerated inference, a smaller model
+  traded against quality, or moving long agent calls to async background jobs would each help.
+- **Direct Jira issue creation.** Push epics and stories straight into a Jira project via its
+  API, instead of the current export-and-import-a-CSV flow.
+- **User-selectable models.** Let a user pick a different local Ollama model per run instead
+  of the single configured `LLM_MODEL`.
+- **Project-plan chat interface.** A conversational way to ask questions about an existing
+  plan or request targeted changes, alongside the structured regenerate and edit flows.
+- **Database migrations.** Schema changes to an existing local database currently need a
+  manual `ALTER TABLE` or a fresh database; a migration tool would remove that.
 
-| Idea | Status |
-|---|---|
-| Hybrid keyword + vector search | Done — shipped as part of the core retrieval pipeline, not a stretch add-on |
-| Plan version comparison | Done — a version-history page diffs any two versions' Epics/Stories/Technical tasks/Dependencies (added/removed/modified/unchanged). The diff is whole-object-equality based, not field-level, and RAID/sprint-plan aren't diffed (no stable diff identity) |
-| Selective artifact regeneration | Done — sprint plan alone, or tasks/dependencies/RAID together, can be regenerated without rebuilding the whole plan; regenerating resets plan approval (§20.5). Epics/stories are deliberately not selectively regeneratable — they're the ID backbone everything downstream keys off of |
-| Requirement-change impact analysis | Done — shows every epic/story/task/dependency traceable to a requirement, reusing the existing traceability matrix (fully deterministic, no new LLM call). RAID items aren't covered — they're not keyed to individual requirements in that matrix |
-| DOCX export | Done — mirrors the Markdown export's exact structure via python-docx (already a dependency, previously used only for parsing input documents). No custom Word styling/branding — plain heading/table styles, same as the Markdown export |
-| Visual dependency graph | Done — a hand-rolled SVG layered-DAG view (no new graph library) toggled alongside the existing Dependencies list. Only items that appear in a dependency edge are shown; a detected cycle is flagged rather than silently mis-rendered |
-| Agent execution replay | Done — Play/Pause/step/scrub controls added to the execution screen over its existing event log. Scoped to the latest run only, matching that endpoint's own deliberate one-run-at-a-time design; browsing past runs would need a new backend endpoint |
-| Local reranking model | Deliberately dropped — the pipeline's generation latency (not retrieval) was already the bottleneck, so adding another local-model inference pass wasn't worth it |
-| Direct Jira issue creation, user-selectable models, project-plan chat interface | Not attempted — each is a genuinely separate feature, not a small extension of what exists |
-
-### What this build's own experience surfaced
-
-- **A real database migration tool.** Schema changes to an already-created local database
-  currently require a manual `ALTER TABLE` or a fresh database — this has already caused one
-  real (if minor) issue. A migration tool would remove this class of problem entirely.
-- **Extend the "schema over prompt" technique further.** The story-points and dependency-
-  description fixes established a real, generalizable pattern: a required, narrowly-typed
-  schema field reliably beats a prose instruction for getting a small local model to produce
-  something consistently. Worth auditing every remaining model-facing schema for the same
-  opportunity.
-- **Extend the deterministic-backfill pattern beyond epic coverage.** The coverage-backfill
-  mechanism (check for a gap after generation, pay for one more narrow LLM call only if a gap
-  is actually found) is a working template that could plausibly help with other
-  prompt-alone-isn't-reliable-enough gaps, like missing acceptance criteria.
-- **GPU inference, or a smaller/faster model, as a path to production viability.** The single
-  biggest practical limitation of this build is CPU-only latency. Before any production use,
-  this needs either GPU-accelerated inference, a faster model traded against quality, or
-  restructuring long agent calls as async background jobs instead of synchronous requests.
 ## License
 
 MIT — see [LICENSE](LICENSE).
